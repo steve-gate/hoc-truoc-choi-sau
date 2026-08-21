@@ -1,0 +1,202 @@
+<Window x:Class="FocusLock.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FocusLock V5" Width="1120" Height="800" MinWidth="980" MinHeight="690"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock FontSize="28" FontWeight="Bold" Text="FocusLock V5"/>
+                <TextBlock Foreground="#666" Text="Focus → Key → Guard Service → Statistics → Browser Rules"/>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                <TextBlock x:Name="ServiceStatusText" FontWeight="Bold" HorizontalAlignment="Right" Text="Đang kết nối Guard..."/>
+                <TextBlock x:Name="CurrentStatusText" FontWeight="SemiBold" HorizontalAlignment="Right" Text="Sẵn sàng"/>
+                <TextBlock x:Name="CurrentAppText" Foreground="#777" HorizontalAlignment="Right" Text="—"/>
+            </StackPanel>
+        </DockPanel>
+
+        <Grid Grid.Row="1" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Background="{StaticResource CardBrush}" CornerRadius="12" Padding="16" Margin="0,0,6,0">
+                <StackPanel><TextBlock Foreground="#666" Text="KEY TIẾP THEO"/><TextBlock x:Name="FocusProgressText" FontSize="24" FontWeight="Bold"/><ProgressBar x:Name="FocusProgressBar" Height="8" Margin="0,8,0,0"/></StackPanel>
+            </Border>
+            <Border Grid.Column="1" Background="{StaticResource CardBrush}" CornerRadius="12" Padding="16" Margin="3,0">
+                <StackPanel><TextBlock Foreground="#666" Text="GIẢI TRÍ CÒN LẠI"/><TextBlock x:Name="EntertainmentText" FontSize="24" FontWeight="Bold"/><TextBlock x:Name="LockStateText" Foreground="#777"/></StackPanel>
+            </Border>
+            <Border Grid.Column="2" Background="{StaticResource CardBrush}" CornerRadius="12" Padding="16" Margin="3,0">
+                <StackPanel><TextBlock Foreground="#666" Text="HOẠT ĐỘNG / 60S"/><TextBlock x:Name="ActivityScoreText" FontSize="24" FontWeight="Bold"/><TextBlock x:Name="HeartbeatText" Foreground="#777"/></StackPanel>
+            </Border>
+            <Border Grid.Column="3" Background="{StaticResource CardBrush}" CornerRadius="12" Padding="16" Margin="6,0,0,0">
+                <StackPanel><TextBlock Foreground="#666" Text="TỔNG TOÀN THỜI GIAN"/><TextBlock x:Name="TotalFocusText" FontSize="18" FontWeight="Bold"/><TextBlock x:Name="TotalPlayText" Foreground="#777"/><TextBlock x:Name="SuspiciousText" Foreground="#777"/></StackPanel>
+            </Border>
+        </Grid>
+
+        <TabControl Grid.Row="2">
+            <TabItem Header="Thống kê">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14">
+                        <DockPanel Margin="0,0,0,10">
+                            <StackPanel DockPanel.Dock="Left">
+                                <TextBlock FontSize="21" FontWeight="Bold" Text="Dashboard thống kê"/>
+                                <TextBlock x:Name="StatsPeriodLabel" Foreground="#666" Text="Tuần này"/>
+                            </StackPanel>
+                            <ComboBox x:Name="StatsPeriodCombo" DockPanel.Dock="Right" Width="150" HorizontalAlignment="Right" SelectedIndex="1" SelectionChanged="StatsPeriodCombo_SelectionChanged">
+                                <ComboBoxItem Content="Hôm nay" Tag="today"/>
+                                <ComboBoxItem Content="Tuần này" Tag="week"/>
+                                <ComboBoxItem Content="Tháng này" Tag="month"/>
+                            </ComboBox>
+                        </DockPanel>
+
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Border Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="0,0,5,0"><StackPanel><TextBlock Foreground="#666" Text="FOCUS"/><TextBlock x:Name="StatsFocusText" FontSize="25" FontWeight="Bold"/><TextBlock x:Name="StatsFocusPercentText" Foreground="#777"/></StackPanel></Border>
+                            <Border Grid.Column="1" Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="3,0"><StackPanel><TextBlock Foreground="#666" Text="GIẢI TRÍ"/><TextBlock x:Name="StatsPlayText" FontSize="25" FontWeight="Bold"/><TextBlock x:Name="StatsPlayPercentText" Foreground="#777"/></StackPanel></Border>
+                            <Border Grid.Column="2" Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="3,0"><StackPanel><TextBlock Foreground="#666" Text="KEY"/><TextBlock x:Name="StatsKeyText" FontSize="21" FontWeight="Bold"/><TextBlock x:Name="StatsRewardText" Foreground="#777"/></StackPanel></Border>
+                            <Border Grid.Column="3" Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="5,0,0,0"><StackPanel><TextBlock Foreground="#666" Text="STREAK"/><TextBlock x:Name="StatsStreakText" FontSize="25" FontWeight="Bold"/><TextBlock x:Name="StatsBestStreakText" Foreground="#777"/></StackPanel></Border>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.05*"/><ColumnDefinition Width="0.95*"/></Grid.ColumnDefinitions>
+                            <Border Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="0,0,6,0">
+                                <StackPanel>
+                                    <TextBlock FontSize="17" FontWeight="Bold" Text="7 ngày gần nhất" Margin="0,0,0,8"/>
+                                    <ItemsControl x:Name="WeeklyChartItems">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,3">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding DayLabel}" VerticalAlignment="Center"/>
+                                                    <Grid Grid.Column="1" Margin="6,0">
+                                                        <StackPanel>
+                                                            <Border Height="9" Background="#D8E9FF" CornerRadius="4" HorizontalAlignment="Left" Width="{Binding FocusBarWidth}"/>
+                                                            <Border Height="9" Background="#FFE1D6" CornerRadius="4" HorizontalAlignment="Left" Width="{Binding PlayBarWidth}" Margin="0,3,0,0"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Summary}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#666"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Margin="0,8,0,0" Foreground="#777" Text="Thanh trên = Focus · thanh dưới = Giải trí"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="1" Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="6,0,0,0">
+                                <StackPanel>
+                                    <TextBlock FontSize="17" FontWeight="Bold" Text="Top ứng dụng" Margin="0,0,0,8"/>
+                                    <DataGrid x:Name="StatsAppsGrid" Height="245" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Ứng dụng" Binding="{Binding AppName}" Width="*"/>
+                                            <DataGridTextColumn Header="Nhóm" Binding="{Binding Category}" Width="90"/>
+                                            <DataGridTextColumn Header="Thời gian" Binding="{Binding Duration}" Width="90"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Border Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="0,12,0,0">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,8"><TextBlock FontSize="17" FontWeight="Bold" Text="Session gần đây"/><TextBlock x:Name="StatsSuspiciousText" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="#777"/></DockPanel>
+                                <DataGrid x:Name="SessionsGrid" Height="220" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Ứng dụng" Binding="{Binding AppName}" Width="170"/>
+                                        <DataGridTextColumn Header="Nhóm" Binding="{Binding CategoryLabel}" Width="90"/>
+                                        <DataGridTextColumn Header="Bắt đầu UTC" Binding="{Binding StartedUtc}" Width="160"/>
+                                        <DataGridTextColumn Header="Thời gian" Binding="{Binding DurationLabel}" Width="90"/>
+                                        <DataGridTextColumn Header="Kết thúc bởi" Binding="{Binding EndReason}" Width="*"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Ứng dụng">
+                <Grid Margin="12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><StackPanel Orientation="Horizontal"><Button Content="+ App học/làm việc" Click="AddFocusApp_Click"/><Button Content="+ App giải trí" Click="AddEntertainmentApp_Click"/><Button Content="Bật/Tắt" Click="ToggleApp_Click"/><Button Content="Xóa" Click="RemoveApp_Click"/></StackPanel><DataGrid x:Name="AppsGrid" Grid.Row="1" Margin="0,8,0,0" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" SelectionMode="Single"><DataGrid.Columns><DataGridTextColumn Header="Tên" Binding="{Binding Name}" Width="160"/><DataGridTextColumn Header="Nhóm" Binding="{Binding CategoryLabel}" Width="160"/><DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="130"/><DataGridTextColumn Header="Đường dẫn" Binding="{Binding DisplayPath}" Width="*"/><DataGridCheckBoxColumn Header="Bật" Binding="{Binding Enabled}" Width="60"/></DataGrid.Columns></DataGrid></Grid>
+            </TabItem>
+
+            <TabItem Header="Trình duyệt V5">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14">
+                        <Border Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="0,0,0,12">
+                            <StackPanel>
+                                <DockPanel><TextBlock FontSize="19" FontWeight="Bold" Text="Browser Bridge"/><Button DockPanel.Dock="Right" Content="Mở thư mục Extension" Click="OpenExtensionFolder_Click"/></DockPanel>
+                                <TextBlock x:Name="BrowserBridgeStatusText" FontWeight="SemiBold" Margin="0,8,0,0" Text="Chưa kết nối Chrome/Edge Extension"/>
+                                <TextBlock x:Name="BrowserCurrentPageText" Foreground="#555" TextWrapping="Wrap" Margin="0,4,0,0" Text="Trang hiện tại: —"/>
+                                <TextBlock x:Name="BrowserCurrentUrlText" Foreground="#777" TextWrapping="Wrap" Margin="0,2,0,0" Text="—"/>
+                                <TextBlock x:Name="BrowserCurrentRuleText" Foreground="#555" Margin="0,4,0,0" Text="Rule: —"/>
+                                <TextBlock Foreground="#777" Margin="0,7,0,0" TextWrapping="Wrap" Text="Extension ID: njmmdgnpjlfkhcngkfbbliondpnfalnb · Cùng một extension dùng cho Chrome và Edge Chromium."/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{StaticResource CardBrush}" CornerRadius="10" Padding="14" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock FontSize="18" FontWeight="Bold" Text="Thêm rule website"/>
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="BrowserMatchTypeCombo" SelectedIndex="0">
+                                        <ComboBoxItem Content="Domain / subdomain" Tag="HostSuffix"/>
+                                        <ComboBoxItem Content="URL bắt đầu bằng" Tag="UrlPrefix"/>
+                                        <ComboBoxItem Content="URL chứa" Tag="UrlContains"/>
+                                        <ComboBoxItem Content="Tiêu đề tab chứa" Tag="TitleContains"/>
+                                    </ComboBox>
+                                    <TextBox x:Name="BrowserRulePatternBox" Grid.Column="1" Margin="8,0" ToolTip="Ví dụ: youtube.com hoặc https://www.youtube.com/playlist?list=..."/>
+                                    <TextBox x:Name="BrowserRuleNameBox" Grid.Column="2" ToolTip="Tên gợi nhớ, có thể để trống"/>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <Button Content="+ Rule Focus" Click="AddBrowserFocusRule_Click"/>
+                                    <Button Content="+ Rule Giải trí" Click="AddBrowserEntertainmentRule_Click"/>
+                                    <Button Content="Lấy trang hiện tại" Click="UseCurrentBrowserPage_Click"/>
+                                    <Button Content="Bật/Tắt" Click="ToggleBrowserRule_Click"/>
+                                    <Button Content="Xóa" Click="RemoveBrowserRule_Click"/>
+                                </StackPanel>
+                                <TextBlock Foreground="#777" TextWrapping="Wrap" Margin="0,8,0,0" Text="Rule chi tiết được ưu tiên hơn rule domain: URL Prefix &gt; Title Contains &gt; URL Contains &gt; Domain. Ví dụ: youtube.com = Giải trí, nhưng một playlist học cụ thể có thể đặt URL Prefix = Focus."/>
+                            </StackPanel>
+                        </Border>
+
+                        <DataGrid x:Name="BrowserRulesGrid" Height="300" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" SelectionMode="Single">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Tên" Binding="{Binding DisplayName}" Width="180"/>
+                                <DataGridTextColumn Header="Kiểu" Binding="{Binding MatchTypeLabel}" Width="140"/>
+                                <DataGridTextColumn Header="Pattern" Binding="{Binding Pattern}" Width="*"/>
+                                <DataGridTextColumn Header="Nhóm" Binding="{Binding CategoryLabel}" Width="150"/>
+                                <DataGridCheckBoxColumn Header="Bật" Binding="{Binding Enabled}" Width="60"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Key thưởng">
+                <Grid Margin="12"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><DockPanel><TextBox x:Name="RedeemKeyTextBox" MinWidth="260" CharacterCasing="Upper"/><Button Content="Nhập key" Click="RedeemKey_Click"/><TextBlock x:Name="RedeemResultText" VerticalAlignment="Center" Margin="12,0,0,0"/></DockPanel><DataGrid x:Name="KeysGrid" Grid.Row="1" Margin="0,8,0,0" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"><DataGrid.Columns><DataGridTextColumn Header="Key" Binding="{Binding Code}" Width="180"/><DataGridTextColumn Header="Thưởng" Binding="{Binding RewardLabel}" Width="90"/><DataGridTextColumn Header="Hết hạn UTC" Binding="{Binding ExpiresUtc}" Width="180"/><DataGridTextColumn Header="Trạng thái" Binding="{Binding Status}" Width="120"/></DataGrid.Columns></DataGrid></Grid>
+            </TabItem>
+
+            <TabItem Header="Nhật ký bảo vệ">
+                <DataGrid x:Name="AuditGrid" Margin="12" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"><DataGrid.Columns><DataGridTextColumn Header="Thời gian UTC" Binding="{Binding AtUtc}" Width="180"/><DataGridTextColumn Header="Loại" Binding="{Binding Type}" Width="110"/><DataGridTextColumn Header="Sự kiện" Binding="{Binding Message}" Width="*"/></DataGrid.Columns></DataGrid>
+            </TabItem>
+
+            <TabItem Header="Cài đặt">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="18" MaxWidth="650" HorizontalAlignment="Left">
+                    <TextBlock FontSize="20" FontWeight="Bold" Text="Luật thời gian" Margin="0,0,0,8"/><TextBlock Text="Phút Focus để tạo 1 key"/><TextBox x:Name="FocusMinutesBox"/><TextBlock Text="Phút giải trí mỗi key"/><TextBox x:Name="RewardMinutesBox"/><TextBlock Text="Key hết hạn sau (phút)"/><TextBox x:Name="KeyExpiryBox"/><TextBlock Text="Idle threshold (giây)"/><TextBox x:Name="IdleSecondsBox"/><TextBlock Text="Giới hạn tích lũy giải trí (phút)"/><TextBox x:Name="MaxBalanceBox"/>
+                    <Separator Margin="4,12"/><TextBlock FontSize="18" FontWeight="Bold" Text="Chống gian lận"/><CheckBox x:Name="AntiCheatCheck" Content="Bật kiểm tra mật độ hoạt động" Margin="4,8"/><TextBlock Text="Số lần có input tối thiểu trong 60 giây"/><TextBox x:Name="ActivityEventsBox"/><TextBlock Text="Mất heartbeat agent sau (giây) → khóa an toàn"/><TextBox x:Name="HeartbeatBox"/><TextBlock Text="Dung sai lùi giờ hệ thống (giây)"/><TextBox x:Name="ClockToleranceBox"/><CheckBox x:Name="VerifyHashCheck" Content="Xác minh SHA-256 file ứng dụng" Margin="4,8"/>
+                    <Separator Margin="4,12"/><TextBlock FontSize="18" FontWeight="Bold" Text="Thống kê"/><TextBlock Text="Focus tối thiểu mỗi ngày để tính streak (phút)"/><TextBox x:Name="StreakGoalBox"/><TextBlock Text="Số ngày giữ dữ liệu thống kê (30–3650)"/><TextBox x:Name="RetentionDaysBox"/><TextBlock Text="Số session tối đa lưu lại (100–20000)"/><TextBox x:Name="SessionLimitBox"/>
+                    <Separator Margin="4,12"/><TextBlock FontSize="18" FontWeight="Bold" Text="Browser V5"/><CheckBox x:Name="BrowserRulesEnabledCheck" Content="Bật phân loại website bằng Chrome/Edge Extension" Margin="4,8"/><TextBlock Text="Browser context hết hiệu lực sau (giây, 2–30)"/><TextBox x:Name="BrowserContextTimeoutBox"/>
+                    <Separator Margin="4,12"/><CheckBox x:Name="BubbleEnabledCheck" Content="Hiển thị bubble thời gian" Margin="4,8"/><CheckBox x:Name="StartWithWindowsCheck" Content="Khởi động giao diện cùng Windows" Margin="4,8"/><Button Content="Lưu cài đặt" Click="SaveSettings_Click" HorizontalAlignment="Left"/><Border Background="#FFFFF5CC" CornerRadius="8" Padding="12" Margin="4,14,4,0"><TextBlock TextWrapping="Wrap" Text="Guard Service giữ toàn bộ V1–V4. V5 chỉ cho browser kiếm Focus khi Extension đang kết nối và URL khớp rule Focus; website Giải trí hết balance sẽ bị extension chuyển sang trang khóa riêng."/></Border>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+        </TabControl>
+        <TextBlock Grid.Row="3" x:Name="FooterText" Foreground="#777" Margin="0,10,0,0" Text="V5: đang chờ FocusLock Guard + Browser Bridge."/>
+    </Grid>
+</Window>

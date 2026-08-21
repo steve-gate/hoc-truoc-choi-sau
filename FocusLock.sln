@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FocusLock.Shared", "FocusLock.Shared\FocusLock.Shared.csproj", "{2C87A6C0-7D01-4CB7-A62D-E47885F9600C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FocusLock.App", "FocusLock.App\FocusLock.App.csproj", "{C3A5F62D-89A7-4ED4-A290-B16A2C4730D8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FocusLock.Service", "FocusLock.Service\FocusLock.Service.csproj", "{AAB47C64-0F2D-4A23-8FF9-940C58C91F18}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FocusLock.NativeHost", "FocusLock.NativeHost\FocusLock.NativeHost.csproj", "{D7B72FD7-1B38-45F9-A745-D84EAFE656F1}"
+EndProject
+Global
+    GlobalSection(SolutionConfigurationPlatforms) = preSolution
+        Debug|Any CPU = Debug|Any CPU
+        Release|Any CPU = Release|Any CPU
+    EndGlobalSection
+    GlobalSection(ProjectConfigurationPlatforms) = postSolution
+        {2C87A6C0-7D01-4CB7-A62D-E47885F9600C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {2C87A6C0-7D01-4CB7-A62D-E47885F9600C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {2C87A6C0-7D01-4CB7-A62D-E47885F9600C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {2C87A6C0-7D01-4CB7-A62D-E47885F9600C}.Release|Any CPU.Build.0 = Release|Any CPU
+        {C3A5F62D-89A7-4ED4-A290-B16A2C4730D8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {C3A5F62D-89A7-4ED4-A290-B16A2C4730D8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {C3A5F62D-89A7-4ED4-A290-B16A2C4730D8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {C3A5F62D-89A7-4ED4-A290-B16A2C4730D8}.Release|Any CPU.Build.0 = Release|Any CPU
+        {AAB47C64-0F2D-4A23-8FF9-940C58C91F18}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {AAB47C64-0F2D-4A23-8FF9-940C58C91F18}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {AAB47C64-0F2D-4A23-8FF9-940C58C91F18}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {AAB47C64-0F2D-4A23-8FF9-940C58C91F18}.Release|Any CPU.Build.0 = Release|Any CPU
+        {D7B72FD7-1B38-45F9-A745-D84EAFE656F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {D7B72FD7-1B38-45F9-A745-D84EAFE656F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {D7B72FD7-1B38-45F9-A745-D84EAFE656F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {D7B72FD7-1B38-45F9-A745-D84EAFE656F1}.Release|Any CPU.Build.0 = Release|Any CPU
+    EndGlobalSection
+EndGlobal

@@ -1,0 +1,18 @@
+<Window x:Class="FocusLock.App.BubbleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="250" Height="112" WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize">
+    <Border Background="#E61B1B1B" CornerRadius="16" Padding="14" BorderBrush="#33FFFFFF" BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <TextBlock x:Name="ModeText" Foreground="White" FontWeight="SemiBold" FontSize="15" Text="FOCUS LOCK"/>
+            <TextBlock x:Name="TimeText" Grid.Row="1" Foreground="White" FontWeight="Bold" FontSize="26" Margin="0,5,0,0" Text="00:00"/>
+            <TextBlock x:Name="DetailText" Grid.Row="2" Foreground="#FFD0D0D0" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" Text="Sẵn sàng"/>
+        </Grid>
+    </Border>
+</Window>

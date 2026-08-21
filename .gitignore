@@ -1,0 +1,13 @@
+# C# / .NET
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# FocusLock specific
+publish/
+.tools/
