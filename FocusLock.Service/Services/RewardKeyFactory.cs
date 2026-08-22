@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using FocusLock.Shared.Models;
 
 namespace FocusLock.Service.Services;
@@ -18,7 +18,7 @@ public static class RewardKeyFactory
             Code = code,
             Nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)),
             CreatedUtc = DateTime.UtcNow,
-            ExpiresUtc = DateTime.UtcNow.AddMinutes(expiryMinutes),
+            ExpiresUtc = DateTime.UtcNow.AddMinutes(Math.Max(UserSettings.MinimumKeyExpiryMinutes, expiryMinutes)),
             RewardSeconds = rewardSeconds
         };
         key.Signature = store.SignKey(key);

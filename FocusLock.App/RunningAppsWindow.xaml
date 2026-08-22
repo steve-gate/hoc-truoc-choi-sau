@@ -1,0 +1,33 @@
+<Window x:Class="FocusLock.App.RunningAppsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chọn ứng dụng đang chạy" Width="720" Height="560" MinWidth="620" MinHeight="460"
+        WindowStartupLocation="CenterOwner" Background="{StaticResource WindowBrush}">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock x:Name="PickerTitleText" Style="{StaticResource PageTitle}" Text="Chọn ứng dụng"/>
+            <TextBlock x:Name="PickerSubtitleText" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" Text="Chỉ hiện ứng dụng có cửa sổ đang mở."/>
+        </StackPanel>
+        <TextBox x:Name="SearchBox" Grid.Row="1" Margin="0,16,0,12" TextChanged="SearchBox_TextChanged" ToolTip="Tìm theo tên ứng dụng"/>
+        <Border Grid.Row="2" Style="{StaticResource CardStyle}" Padding="8">
+            <ListBox x:Name="AppsList" BorderThickness="0" Background="Transparent" MouseDoubleClick="AppsList_MouseDoubleClick">
+                <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,5"/></Style></ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="11" Padding="12">
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="10" Background="{StaticResource AccentSoftBrush}"><TextBlock Text="▣" Foreground="{StaticResource AccentBrush}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                                <StackPanel Grid.Column="1" Margin="10,0,0,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5"/><TextBlock Text="{Binding Path}" Foreground="{StaticResource MutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/></StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+        <Grid Grid.Row="3" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock x:Name="CountText" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="Hủy" Click="Cancel_Click" Margin="0,0,8,0"/><Button Style="{StaticResource PrimaryButton}" Content="Chọn ứng dụng" Click="Choose_Click"/></StackPanel>
+        </Grid>
+    </Grid>
+</Window>

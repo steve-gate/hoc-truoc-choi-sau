@@ -1,0 +1,14 @@
+﻿<Window x:Class="FocusLock.App.AppPolicyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FocusLock — Nâng cao ứng dụng" Width="620" Height="360" WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel><TextBlock x:Name="TitleText" FontSize="24" FontWeight="Bold"/><TextBlock Text="Profile được quản lý tập trung trong Profile Center. Màn hình này chỉ dành cho ngoại lệ cách khóa của riêng ứng dụng." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,16"/></StackPanel>
+        <StackPanel Grid.Row="1">
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12"><StackPanel><TextBlock Text="Block Profile" FontWeight="Bold"/><ComboBox x:Name="ProfileCombo" DisplayMemberPath="Name" Margin="0,8,0,0" IsEnabled="False"/><TextBlock Text="Muốn chuyển app sang Profile khác, hãy dùng Profile Center." Foreground="{StaticResource MutedBrush}" FontSize="11.5" Margin="0,5,0,0"/></StackPanel></Border>
+            <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="Cách khóa ứng dụng" FontWeight="Bold"/><ComboBox x:Name="ActionCombo" DisplayMemberPath="Label" Margin="0,8,0,0"/><TextBlock x:Name="ActionHelpText" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" FontSize="11.5" Margin="0,8,0,0"/></StackPanel></Border>
+        </StackPanel>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0"><Button Content="Hủy" Click="Cancel_Click" Margin="0,0,8,0"/><Button Style="{StaticResource PrimaryButton}" Content="Lưu" Click="Save_Click" MinWidth="100"/></StackPanel>
+    </Grid>
+</Window>

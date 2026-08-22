@@ -17,6 +17,11 @@ public sealed class BrowserRule
     public AppCategory Category { get; set; }
     public bool Enabled { get; set; } = true;
 
+    // V7.1: entertainment websites can share the same Block Profiles as apps,
+    // so schedule/allowance applies consistently across desktop + browser.
+    public string BlockProfileId { get; set; } = "";
+    public string BlockProfileName { get; set; } = "Giải trí chung";
+
     public string CategoryLabel => Category == AppCategory.Focus ? "Học tập / Làm việc" : "Giải trí";
     public string MatchTypeLabel => MatchType switch
     {
@@ -28,4 +33,5 @@ public sealed class BrowserRule
     };
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Pattern : Name;
+    public string BlockProfileLabel => string.IsNullOrWhiteSpace(BlockProfileName) ? "Giải trí chung" : BlockProfileName;
 }

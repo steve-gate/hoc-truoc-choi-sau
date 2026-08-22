@@ -1,10 +1,17 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace FocusLock.Service.Services;
 
-public static class ProcessTools
+internal static class ProcessTools
 {
+    [DllImport("ntdll.dll")]
+    private static extern int NtSuspendProcess(IntPtr processHandle);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtResumeProcess(IntPtr processHandle);
+
     public static string? TryGetProcessPath(Process process)
     {
         try { return process.MainModule?.FileName; }
@@ -21,12 +28,34 @@ public static class ProcessTools
         catch { return ""; }
     }
 
-    public static void TryKill(Process process)
+    public static bool TryKill(Process process)
     {
         try
         {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            if (process.HasExited) return true;
+            process.Kill(entireProcessTree: true);
+            return true;
         }
-        catch { }
+        catch { return false; }
+    }
+
+    public static bool TrySuspend(Process process)
+    {
+        try
+        {
+            if (process.HasExited) return false;
+            return NtSuspendProcess(process.Handle) == 0;
+        }
+        catch { return false; }
+    }
+
+    public static bool TryResume(Process process)
+    {
+        try
+        {
+            if (process.HasExited) return true;
+            return NtResumeProcess(process.Handle) == 0;
+        }
+        catch { return false; }
     }
 }

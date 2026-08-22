@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.IO;
 using FocusLock.Shared.Models;
 
 namespace FocusLock.App.Services;

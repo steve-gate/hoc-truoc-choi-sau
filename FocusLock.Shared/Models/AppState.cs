@@ -1,8 +1,8 @@
-namespace FocusLock.Shared.Models;
+﻿namespace FocusLock.Shared.Models;
 
 public sealed class AppState
 {
-    public int SchemaVersion { get; set; } = 5;
+    public int SchemaVersion { get; set; } = 12;
     public List<TrackedApp> Apps { get; set; } = new();
     public List<RewardKey> Keys { get; set; } = new();
     public List<AuditEvent> AuditLog { get; set; } = new();
@@ -15,6 +15,12 @@ public sealed class AppState
 
     // V5 browser classification rules
     public List<BrowserRule> BrowserRules { get; set; } = new();
+
+    // V7 Cold-Turkey-style block groups for entertainment apps.
+    public List<BlockProfile> BlockProfiles { get; set; } = new();
+
+    // V7.1 strict blocking / locked sessions / Focus-only whitelist.
+    public ControlPolicy ControlPolicy { get; set; } = new();
 
     public int FocusProgressSeconds { get; set; }
     public int EntertainmentBalanceSeconds { get; set; }

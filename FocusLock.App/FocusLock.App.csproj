@@ -1,16 +1,26 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>FocusLock</AssemblyName>
     <RootNamespace>FocusLock.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>7.5.6</Version>
+    <AssemblyVersion>7.5.6.0</AssemblyVersion>
+    <FileVersion>7.5.6.0</FileVersion>
+    <InformationalVersion>7.5.6</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\FocusLock.Shared\FocusLock.Shared.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Keep WinForms tray types fully-qualified; do not import them globally into WPF files. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 </Project>

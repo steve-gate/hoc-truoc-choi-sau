@@ -1,0 +1,61 @@
+﻿<Window x:Class="FocusLock.App.ProfileCenterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FocusLock — Profile Center" Width="1080" Height="720" MinWidth="900" MinHeight="600"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Profile Center" FontSize="28" FontWeight="Bold"/>
+                <TextBlock Text="Quản lý App + Website giải trí theo Profile. Đây là nơi chính để đặt policy, allowance, lịch tuần và cách khóa." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBox x:Name="NewProfileNameBox" Width="180" ToolTip="Tên profile mới"/>
+                <Button Style="{StaticResource PrimaryButton}" Content="+ Tạo Profile" Click="CreateProfile_Click" Margin="8,0,0,0"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="330"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,10"><TextBlock Text="Profiles" FontSize="17" FontWeight="Bold"/><Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Làm mới" Click="Refresh_Click"/></DockPanel>
+                    <ListBox x:Name="ProfilesList" SelectionChanged="ProfilesList_SelectionChanged" BorderThickness="0" Background="Transparent" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Margin" Value="0,0,0,8"/><Setter Property="Padding" Value="0"/></Style></ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate><DataTemplate>
+                            <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="12">
+                                <StackPanel><DockPanel><TextBlock Text="{Binding Name}" FontWeight="Bold"/><TextBlock DockPanel.Dock="Right" Text="{Binding Status}" Foreground="{StaticResource MutedBrush}"/></DockPanel><TextBlock Text="{Binding Members}" Foreground="{StaticResource AccentBrush}" FontSize="11.5" Margin="0,4,0,0"/><TextBlock Text="{Binding ShortPolicy}" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/></StackPanel>
+                            </Border>
+                        </DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left"><TextBlock x:Name="SelectedNameText" Text="Chọn một Profile" FontSize="23" FontWeight="Bold"/><TextBlock x:Name="SelectedStatusText" Text="—" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0"/></StackPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource PrimaryButton}" Content="Quản lý policy + thành viên" Click="EditSelected_Click" Margin="0,0,6,0"/><Button Content="Bật/Tắt" Click="ToggleSelected_Click" Margin="0,0,6,0"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" Click="DeleteSelected_Click"/></StackPanel>
+                        </DockPanel>
+
+                        <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="0,0,7,0"><StackPanel><TextBlock Text="CHÍNH SÁCH" Foreground="{StaticResource MutedBrush}" FontSize="11" FontWeight="Bold"/><TextBlock x:Name="PolicyText" Text="—" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0"/><TextBlock x:Name="ScheduleText" Text="—" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/><TextBlock x:Name="AllowanceText" Text="—" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/></StackPanel></Border>
+                            <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="7,0,0,0"><StackPanel><TextBlock Text="CÁCH KHÓA APP" Foreground="{StaticResource MutedBrush}" FontSize="11" FontWeight="Bold"/><TextBlock x:Name="BlockActionText" Text="—" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock Text="Website luôn bị khóa ngay trên tab; không đóng tab và tự mở khóa khi Profile cho phép trở lại." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Border>
+                        </Grid>
+
+                        <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,7,0"><TextBlock x:Name="AppsHeaderText" Text="Ứng dụng giải trí" FontWeight="Bold" Margin="0,0,0,8"/><ListBox x:Name="AppsMembersList" Height="270"/></StackPanel>
+                            <StackPanel Grid.Column="1" Margin="7,0,0,0"><TextBlock x:Name="WebHeaderText" Text="Website giải trí" FontWeight="Bold" Margin="0,0,0,8"/><ListBox x:Name="WebMembersList" Height="270"/></StackPanel>
+                        </Grid>
+                        <TextBlock Text="Muốn chuyển App/Website giữa các Profile: bấm ‘Quản lý policy + thành viên’ rồi đánh dấu thành viên. Một mục chỉ thuộc một Profile." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <TextBlock Grid.Row="2" x:Name="StatusText" Text="Profile Center sẵn sàng." Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0"/>
+    </Grid>
+</Window>

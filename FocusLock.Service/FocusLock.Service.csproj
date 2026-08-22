@@ -10,6 +10,5 @@
   <ItemGroup>
     <ProjectReference Include="..\FocusLock.Shared\FocusLock.Shared.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.11" />
-    <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
   </ItemGroup>
 </Project>

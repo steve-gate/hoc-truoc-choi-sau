@@ -1,0 +1,13 @@
+FocusLock V6.1 Installer Hotfix
+
+- Fixed UTF-8 BOM in CAI_DAT.bat.
+- CAI_DAT.bat is now ASCII/CRLF and only launches one PowerShell bootstrapper.
+- PowerShell bootstrapper requests Administrator permission itself.
+- Adds install.log in the code folder.
+- Downloads .NET 10 SDK into .tools\dotnet only when needed.
+- Build stops immediately on errors.
+- Installer verifies all three EXE files before installing.
+- Existing FocusLockGuard service is updated in place instead of delete/recreate.
+- publish\Data is preserved.
+
+Usage: double-click CAI_DAT.bat.

@@ -1,62 +1,23 @@
-# FocusLock V5 — One-Click / Code-Folder Edition
+# FocusLock V7.4 — Profile-First + Entertainment Bubble + 24h Keys
 
-Bản này được làm lại để cài đặt nhanh và không yêu cầu bạn tự cài .NET SDK vào Windows.
+V7.4 sửa ba điểm cốt lõi của V7.3:
 
-## Cài đặt — chỉ 1 file
+1. Bubble giải trí dùng trạng thái session thật từ Guard, áp dụng cho cả app và website; hiển thị thời gian còn dùng được, nguồn allowance/ví và profile hiện tại.
+2. Key có hạn tối thiểu 24 giờ ở cả UI, model, Guard, factory và migration. Key cũ chưa dùng có hạn ngắn hơn sẽ được nâng lên tối thiểu 24 giờ và ký lại HMAC.
+3. Quản lý giải trí theo Profile trước: Profile Center là nơi chính để quản lý App + Website, policy ngoài lịch/trong lịch, allowance, lịch tuần và cách khóa app mặc định. Thiết lập riêng từng app chỉ còn là override nâng cao.
 
-1. Giải nén FocusLock vào ổ còn nhiều dung lượng, ví dụ `D:\Code\FocusLock`.
-2. Chuột phải **`CAI_DAT.bat`** → **Run as administrator**.
-3. Chờ script hoàn tất.
+## Nâng cấp
 
-`CAI_DAT.bat` tự làm toàn bộ phần còn lại:
+Giải nén gói UPDATE ghi đè vào thư mục source hiện tại, không xóa `publish\Data`, sau đó mở CMD Administrator và chạy:
 
-- Nếu máy chưa có .NET SDK, tự tải **.NET SDK 10 x64** vào `.tools\dotnet` ngay trong thư mục code.
-- Đưa NuGet cache, .NET CLI home và build temp vào `.tools` trong thư mục code để giảm ghi dữ liệu lên ổ C.
-- Restore + build App, Windows Service và Native Host.
-- Kiểm tra thật sự các file `.exe` đã được tạo; build lỗi thì dừng ngay, không báo hoàn tất giả.
-- Đăng ký Windows Service, startup và Native Messaging Host.
-- Khởi động FocusLock.
-- Mở thư mục Browser Extension và trang Extensions để bạn load extension nếu cần V5 trình duyệt.
-
-## Thư mục sau khi cài
-
-```text
-<THƯ MỤC CODE>\
-├─ CAI_DAT.bat
-├─ setup-oneclick.ps1
-├─ .tools\                 # SDK + NuGet/cache/build temp, nằm cùng ổ code
-└─ publish\
-   ├─ App\
-   ├─ Service\
-   ├─ NativeHost\
-   ├─ BrowserExtension\
-   └─ Data\                # key, balance, settings, statistics, HMAC state
+```bat
+NANG_CAP_V7_4.bat
 ```
 
-Không copy FocusLock vào `C:\Program Files\FocusLock` và không dùng `C:\ProgramData\FocusLock` cho dữ liệu chính.
+Sau nâng cấp, Reload FocusLock Browser Bridge trong `chrome://extensions` hoặc `edge://extensions` một lần.
 
-Windows vẫn phải lưu vài registry/service entries rất nhỏ. Windows và các chương trình khác vẫn có thể tự dùng một lượng nhỏ TEMP/cache hệ thống; FocusLock đã chuyển phần build/cache lớn của chính nó sang `.tools`.
 
-## Browser Extension
-
-Core FocusLock cài tự động. Browser Extension của Chrome/Edge ở chế độ phát triển vẫn cần load một lần:
-
-- Chrome: `chrome://extensions`
-- Edge: `edge://extensions`
-- Bật **Developer mode**
-- Chọn **Load unpacked**
-- Chọn `<THƯ MỤC CODE>\publish\BrowserExtension`
-
-Installer sẽ tự mở thư mục này để thao tác nhanh hơn.
-
-## Chạy lại / cập nhật
-
-Chỉ cần chạy lại **`CAI_DAT.bat`**. Dữ liệu trong `publish\Data` được giữ nguyên.
-
-## Gỡ đăng ký khỏi Windows
-
-Mở PowerShell Administrator trong `publish` và chạy `uninstall-v5.ps1`. Script không xóa `Data`.
-
-## Lưu ý
-
-Sau khi cài, không di chuyển/đổi tên cả thư mục FocusLock vì Windows Service và Native Messaging lưu đường dẫn tuyệt đối. Muốn chuyển ổ: uninstall trước, di chuyển folder, rồi chạy lại `CAI_DAT.bat`.
+## V7.5
+- Bubble giải trí website dùng foreground browser được Guard xác minh.
+- Bảo vệ cấu hình bằng đoạn văn hoặc khung thời gian.
+- Minimize/Close to system tray.

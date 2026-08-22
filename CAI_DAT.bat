@@ -1,40 +1,45 @@
 @echo off
 setlocal
-chcp 65001 >nul
 cd /d "%~dp0"
+title FocusLock - Cai dat
 
-title FocusLock V5 - Cai dat 1 click
-
-:: Tu yeu cau quyen Administrator neu chua co.
 net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Dang yeu cau quyen Administrator...
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd.exe -ArgumentList '/c', '\"%~f0\"' -Verb RunAs"
-    exit /b
-)
-
-echo.
-echo ============================================================
-echo   FOCUSLOCK V5 - CAI DAT 1 CLICK
-echo ============================================================
-echo.
-echo Khong can cai .NET SDK vao o C.
-echo SDK, NuGet cache, runtime va du lieu se nam trong thu muc code nay.
-echo.
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-oneclick.ps1"
-set EXITCODE=%errorlevel%
-
-echo.
-if not "%EXITCODE%"=="0" (
-    echo [LOI] Cai dat khong thanh cong. Xem dong bao loi phia tren.
+if errorlevel 1 (
+    echo.
+    echo [LOI] Hay CHUOT PHAI file nay va chon:
+    echo       Run as administrator
     echo.
     pause
-    exit /b %EXITCODE%
+    exit /b 1
 )
 
-echo [OK] FocusLock da duoc cai dat.
-echo Co the dong cua so nay.
+echo.
+echo ==========================================
+echo FOCUSLOCK - CAI DAT
+echo ==========================================
+echo Administrator: OK
+echo.
+
+if not exist "%~dp0setup-oneclick.ps1" (
+    echo [LOI] Khong tim thay setup-oneclick.ps1
+    echo.
+    pause
+    exit /b 2
+)
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-oneclick.ps1"
+set "RC=%ERRORLEVEL%"
+
+echo.
+if not "%RC%"=="0" (
+    echo [LOI] Cai dat that bai. Ma loi: %RC%
+    if exist "%~dp0install.log" echo Log: %~dp0install.log
+    echo.
+    pause
+    exit /b %RC%
+)
+
+echo [OK] Cai dat hoan tat.
 echo.
 pause
 exit /b 0

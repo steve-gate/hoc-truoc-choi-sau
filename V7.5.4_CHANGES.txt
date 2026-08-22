@@ -1,0 +1,11 @@
+FocusLock V7.5.4
+
+- Browser Context only classifies the active tab/rule and supplies optional media/page signals.
+- Windows desktop heartbeat is the ONLY time accounting clock for both Focus websites and Entertainment websites.
+- Browser rule resolution no longer requires content-script documentVisible.
+- Trusted desktop input on a Focus website grants a 90-second reading lease.
+- Media progression still qualifies passive lesson watching/listening.
+- Browser context freshness tolerance increased to 12 seconds to survive short MV3 scheduling gaps.
+- Bubble is WS_EX_NOACTIVATE + ShowActivated=False, so clicking/dragging it does not steal Chrome/Edge foreground.
+- Bubble no longer changes the tracked foreground app merely because the user touched the bubble.
+- publish\Data is untouched.

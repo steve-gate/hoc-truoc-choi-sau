@@ -8,15 +8,25 @@
 </head>
 <body>
   <main>
-    <h1>FocusLock V5</h1>
-    <div id="status" class="pill">Đang kết nối...</div>
-    <div class="row"><span>Trang</span><strong id="host">—</strong></div>
-    <div class="row"><span>Phân loại</span><strong id="category">Neutral</strong></div>
-    <div class="row"><span>Rule</span><strong id="rule">—</strong></div>
-    <div class="row"><span>Giải trí còn</span><strong id="balance">00:00</strong></div>
-    <p id="message"></p>
-    <button id="refresh">Làm mới</button>
-    <small>Quản lý rule chi tiết trong FocusLock → Trình duyệt V5.</small>
+    <header>
+      <div class="brand"><span class="logo">FL</span><div><h1>FocusLock</h1><span>Học trước · chơi sau</span></div></div>
+      <div id="status" class="status">Đang kết nối…</div>
+    </header>
+
+    <section class="site-card">
+      <div class="eyebrow">TRANG ĐANG MỞ</div>
+      <strong id="host" class="host">—</strong>
+      <div class="meta"><span id="category" class="category">Chưa phân loại</span><span id="rule" class="rule">—</span></div><div class="meta"><span id="profile" class="rule">Profile: —</span><span id="access" class="rule">—</span></div>
+    </section>
+
+    <section class="balance-card">
+      <div><span class="eyebrow">THỜI GIAN GIẢI TRÍ</span><strong id="balance">00:00</strong></div>
+      <span class="game">🎮</span>
+    </section>
+
+    <p id="message" class="message"></p>
+    <button id="refresh">Làm mới trạng thái</button>
+    <small>Quản lý website trong FocusLock → Website.</small>
   </main>
   <script src="popup.js"></script>
 </body>

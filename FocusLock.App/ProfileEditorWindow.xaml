@@ -1,0 +1,83 @@
+﻿<Window x:Class="FocusLock.App.ProfileEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FocusLock — Profile Policy Center" Width="900" Height="760" MinWidth="760" MinHeight="620"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+        <StackPanel Margin="0,0,0,16">
+            <TextBlock Text="Profile Policy Center" FontSize="27" FontWeight="Bold"/>
+            <TextBlock Text="Profile là đơn vị quản lý chính. App và website giải trí chỉ là thành viên; mọi allowance, ví, lịch và cách khóa được áp dụng từ đây." Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Thông tin" Style="{StaticResource SectionTitle}"/>
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="180"/></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="Tên profile" Style="{StaticResource LabelText}"/><TextBox x:Name="NameBox"/></StackPanel>
+                            <StackPanel Grid.Column="1" Margin="16,0,0,0"><TextBlock Text="Trạng thái" Style="{StaticResource LabelText}"/><CheckBox x:Name="EnabledCheck" Content="Bật profile"/></StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Chính sách truy cập" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="Tách rõ hành vi bình thường và hành vi trong các ô lịch đã tô. Không còn các mode khó hiểu." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,12" TextWrapping="Wrap"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock Text="Ngoài vùng lịch" Style="{StaticResource LabelText}"/>
+                                <ComboBox x:Name="DefaultPolicyCombo" DisplayMemberPath="Label"/>
+                                <TextBlock x:Name="DefaultPolicyHelp" Foreground="{StaticResource SubtleBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock Text="Trong vùng lịch đã tô" Style="{StaticResource LabelText}"/>
+                                <ComboBox x:Name="ScheduledPolicyCombo" DisplayMemberPath="Label"/>
+                                <TextBlock x:Name="ScheduledPolicyHelp" Foreground="{StaticResource SubtleBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="Allowance / ngày" Style="{StaticResource LabelText}"/><DockPanel><TextBox x:Name="AllowanceBox" Width="100"/><TextBlock Text="phút" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/></DockPanel></StackPanel>
+                            <StackPanel Grid.Column="1" Margin="16,0,0,0"><TextBlock Text="Lịch tuần" Style="{StaticResource LabelText}"/><TextBlock x:Name="ScheduleSummaryText" FontWeight="SemiBold"/><CheckBox x:Name="ScheduleEnabledCheck" Content="Áp dụng lịch tuần"/></StackPanel>
+                            <Button Grid.Column="2" Content="Mở lịch tuần" Click="OpenSchedule_Click" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Cách khóa ứng dụng mặc định" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="Website luôn dùng màn khóa trên tab. Tùy chọn dưới đây chỉ áp dụng cho ứng dụng Windows; app đặc biệt có thể override riêng." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,10" TextWrapping="Wrap"/>
+                        <ComboBox x:Name="DefaultBlockActionCombo" Width="320" HorizontalAlignment="Left" DisplayMemberPath="Label"/>
+                        <TextBlock x:Name="BlockActionHelp" Foreground="{StaticResource SubtleBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left"><TextBlock Text="Thành viên của profile" Style="{StaticResource SectionTitle}"/><TextBlock Text="Chọn trực tiếp cả app và website. Một mục chỉ thuộc một Block Profile." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/></StackPanel>
+                            <TextBlock x:Name="MemberCountText" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,8,0"><TextBlock Text="Ứng dụng giải trí" FontWeight="Bold" Margin="0,0,0,8"/><ListBox x:Name="AppsList" Height="220"><ListBox.ItemTemplate><DataTemplate><CheckBox IsChecked="{Binding IsMember, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="6"><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="11"/></StackPanel></CheckBox></DataTemplate></ListBox.ItemTemplate></ListBox></StackPanel>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0"><TextBlock Text="Website giải trí" FontWeight="Bold" Margin="0,0,0,8"/><ListBox x:Name="WebsitesList" Height="220"><ListBox.ItemTemplate><DataTemplate><CheckBox IsChecked="{Binding IsMember, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="6"><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="11"/></StackPanel></CheckBox></DataTemplate></ListBox.ItemTemplate></ListBox></StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="Thay đổi chỉ có hiệu lực sau khi bấm Lưu." Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="Hủy" Click="Cancel_Click" Margin="0,0,8,0"/><Button Style="{StaticResource PrimaryButton}" Content="Lưu Profile" Click="Save_Click" MinWidth="130"/></StackPanel>
+        </Grid>
+    </Grid>
+</Window>

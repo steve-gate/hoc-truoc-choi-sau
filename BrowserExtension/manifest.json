@@ -1,21 +1,39 @@
 {
   "manifest_version": 3,
   "name": "FocusLock Browser Bridge",
-  "version": "5.0.0",
-  "description": "Phân loại tab Chrome/Edge thành Focus hoặc Giải trí và kết nối với FocusLock Guard.",
+  "version": "7.5.1",
+  "description": "FocusLock V7.5.1: stable web entertainment debit + bubble + protected settings.",
   "minimum_chrome_version": "120",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAycfAaocoCl2c9rJUFa9EW48BQ3TdmNSgd7IZoBNNSyOVS6pCR7Nhae9XxN/BlSkGPmniOdaJTazdHgI5hmMWupk/prxa6P02Fs0dr75cUJ6RpDSOwDZKcDghvB1pzzstxlI/1EGJlsI8D0ArEGstjo4RM4mvM10LZf1TnQ/yj1IwjeiiU9OauPspUG+a4CYqrOk1Sjc74LKKUg5PA7d3OR/X6PO0GmKL8XIXHxT5zMEVRN0CneV1l75ZHgkxxlTWh42kmUM+NN0q3ZmYVA+DAeG4Z/jeDSdG0BEfvwAGbn8zYku1rG6XKCbaqCtAptyb29gRmZpD0ZUr18niwgfPQwIDAQAB",
   "permissions": [
     "tabs",
     "storage",
     "nativeMessaging",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
   "action": {
     "default_title": "FocusLock Browser Bridge",
     "default_popup": "popup.html"
-  }
+  },
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }

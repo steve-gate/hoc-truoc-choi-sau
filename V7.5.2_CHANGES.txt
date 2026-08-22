@@ -1,0 +1,13 @@
+FocusLock V7.5.2 - Verified Runtime Update
+
+This release focuses on fixing the deployment problem where an older FocusLock UI
+could keep running even after newer source files were extracted.
+
+- Visible V7.5.2 label under the FocusLock logo.
+- FocusLock.exe FileVersion = 7.5.2.0.
+- Force-kills tray UI and NativeHost before runtime replacement.
+- Verifies SHA256 of the deployed FocusLock.exe equals the freshly-built staged EXE.
+- Verifies FileVersion after deployment and again during UI startup.
+- setup-oneclick now follows nativehost.current instead of accepting a stale old NativeHost folder.
+- Keeps the V7.5.1 Settings-page protection placement.
+- Keeps GuardTick-based web entertainment debit and system tray behavior.

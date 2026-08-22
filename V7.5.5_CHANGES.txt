@@ -1,0 +1,16 @@
+FocusLock V7.5.5 - Desktop Agent Heartbeat Fix
+
+Diagnostic proof from the user's machine:
+- Browser Bridge was healthy.
+- Focus and Entertainment browser rules were recognized correctly.
+- But heartbeatHealthy=False and browserForegroundActive=False for the full 45-second test.
+Therefore the root cause was the desktop user-session agent, not the extension/profile rules.
+
+Fix:
+- Removes the activity heartbeat from WPF DispatcherTimer.
+- Runs foreground/input Capture + Guard activity heartbeat in a dedicated background Task.
+- The heartbeat no longer waits for WPF rendering, hidden/tray state, or Dispatcher responsiveness.
+- UI updates are posted asynchronously back to the Dispatcher and never block the next heartbeat.
+- Installer verifies heartbeatHealthy=True after launching V7.5.5; it refuses to report success otherwise.
+
+Only FocusLock.App is rebuilt/replaced. Guard, NativeHost, extension and publish\Data are untouched.

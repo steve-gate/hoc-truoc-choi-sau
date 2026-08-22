@@ -1,12 +1,14 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using FocusLock.App.Services;
 using FocusLock.Shared.Models;
 using FocusLock.Shared.Protocol;
 using Microsoft.Win32;
-using System.IO;
 
 namespace FocusLock.App;
 
@@ -14,51 +16,251 @@ public partial class MainWindow : Window
 {
     private readonly ServiceClient _client = new();
     private readonly Win32Activity _sensor = new();
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly CancellationTokenSource _agentCts = new();
+    private Task? _agentLoopTask;
+    private int _agentLoopStarted;
     private ServiceSnapshot? _snapshot;
     private BubbleWindow? _bubble;
-    private bool _busy;
     private string? _lastNewestKey;
     private bool _settingsLoaded;
     private string _statsPeriod = "week";
+    private int _onboardingStep;
+    private string _appsFingerprint = "";
+    private string _profilesFingerprint = "";
+    private string _profilePolicyFingerprint = "";
+    private string _rulesFingerprint = "";
+    private string _keysFingerprint = "";
+    private System.Windows.Forms.NotifyIcon? _trayIcon;
+    private System.Windows.Forms.ContextMenuStrip? _trayMenu;
+    private bool _allowExit;
+
+    private sealed class ProfileCardViewModel
+    {
+        public required BlockProfile Profile { get; init; }
+        public string Name => Profile.Name;
+        public string StatusLabel => Profile.StatusLabel;
+        public required string MembershipSummary { get; init; }
+        public string PolicySummary => Profile.PolicySummary;
+        public string ScheduleSummary => Profile.ScheduleLabel;
+        public string AllowanceSummary => Profile.AllowanceLabel;
+    }
+
+    private readonly (string Title, string Subtitle)[] _pages =
+    {
+        ("Trang chủ", "Tập trung đúng việc, rồi tận hưởng phần thưởng của bạn."),
+        ("Ứng dụng", "Chia ứng dụng thành hai nhóm rõ ràng: học/làm việc và giải trí."),
+        ("Website", "Phân loại website theo cách đơn giản; quy tắc nâng cao chỉ dùng khi cần."),
+        ("Phần thưởng", "Xem và sử dụng thời gian giải trí bạn đã kiếm được."),
+        ("Thống kê", "Theo dõi tiến độ theo ngày, tuần và tháng."),
+        ("Kiểm soát", "Lịch khóa, Strict Mode, allowance và các phiên tập trung không thể hủy."),
+        ("Cài đặt", "Quy tắc cơ bản ở trên; kỹ thuật và chống gian lận nằm trong Nâng cao.")
+    };
 
     public MainWindow()
     {
         InitializeComponent();
-        _timer.Tick += async (_, _) => await AgentTickAsync();
+        InitializeTrayIcon();
         Loaded += async (_, _) => await StartAsync();
-        Closing += (_, _) => { _sensor.Dispose(); _bubble?.Close(); };
+        Closing += MainWindow_Closing;
+        StateChanged += (_, _) =>
+        {
+            if (WindowState == WindowState.Minimized && (_snapshot?.State.Settings.MinimizeToTray ?? true))
+                HideToTray();
+        };
+        System.Windows.Application.Current.SessionEnding += (_, _) => _allowExit = true;
+
+        DataObject.AddPastingHandler(SettingsChallengeInput, (_, e) => e.CancelCommand());
+        SettingsChallengeInput.PreviewKeyDown += (_, e) =>
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.V) e.Handled = true;
+        };
+    }
+
+    private void InitializeTrayIcon()
+    {
+        try
+        {
+            _trayMenu = new System.Windows.Forms.ContextMenuStrip();
+            _trayMenu.Items.Add("Mở FocusLock", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
+            _trayMenu.Items.Add("Ẩn cửa sổ", null, (_, _) => Dispatcher.Invoke(HideToTray));
+            _trayMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            _trayMenu.Items.Add("Thoát hoàn toàn", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
+
+            _trayIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Text = "FocusLock — Học trước · chơi sau",
+                Icon = System.Drawing.SystemIcons.Application,
+                ContextMenuStrip = _trayMenu,
+                Visible = true
+            };
+            _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
+        }
+        catch (Exception ex)
+        {
+            AppCrashLogger.Exception("InitializeTrayIcon", ex);
+        }
+    }
+
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (!_allowExit && (_snapshot?.State.Settings.MinimizeToTray ?? true))
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
+
+        try { _agentCts.Cancel(); } catch { }
+        _sensor.Dispose();
+        try { _bubble?.Close(); } catch { }
+        if (_trayIcon is not null)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            _trayIcon = null;
+        }
+        _trayMenu?.Dispose();
+        _trayMenu = null;
+    }
+
+    private void HideToTray()
+    {
+        if (!IsVisible) return;
+        ShowInTaskbar = false;
+        Hide();
+    }
+
+    private void ShowFromTray()
+    {
+        ShowInTaskbar = true;
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
+    private void ExitFromTray()
+    {
+        _allowExit = true;
+        Close();
+        System.Windows.Application.Current.Shutdown();
     }
 
     private async Task StartAsync()
     {
-        var response = await _client.SendAsync(new PipeRequest { Command = "snapshot" });
-        ApplyResponse(response);
-
-        if (response.Ok && response.Snapshot?.State.Apps.Count == 0)
+        try
         {
-            var legacy = LegacyStateReader.TryRead();
-            if (legacy is not null && legacy.Apps.Count > 0)
+            AppCrashLogger.Info("MainWindow StartAsync begin");
+            var response = await _client.SendAsync(new PipeRequest { Command = "snapshot" });
+            ApplyResponse(response);
+
+            if (response.Ok && response.Snapshot?.State.Apps.Count == 0)
             {
-                var migrated = await _client.SendAsync(new PipeRequest { Command = "importLegacy", LegacyState = legacy });
-                ApplyResponse(migrated);
-                FooterText.Text = migrated.Message;
+                var legacy = LegacyStateReader.TryRead();
+                if (legacy is not null && legacy.Apps.Count > 0)
+                {
+                    var migrated = await _client.SendAsync(new PipeRequest { Command = "importLegacy", LegacyState = legacy });
+                    ApplyResponse(migrated);
+                    FooterText.Text = migrated.Message;
+                }
+            }
+
+            if (_snapshot?.ServiceOnline == true && !_snapshot.State.Settings.OnboardingCompleted)
+                ShowOnboarding();
+
+            AppCrashLogger.Info($"MainWindow StartAsync ready; serviceOnline={_snapshot?.ServiceOnline}");
+        }
+        catch (Exception ex)
+        {
+            AppCrashLogger.Exception("MainWindow StartAsync", ex);
+            FooterText.Text = @"Có lỗi khi khởi động giao diện. Xem publish\Logs\crash.log.";
+        }
+        finally
+        {
+            StartBackgroundAgent();
+        }
+    }
+
+    private void StartBackgroundAgent()
+    {
+        if (Interlocked.Exchange(ref _agentLoopStarted, 1) != 0) return;
+
+        AppCrashLogger.Info("Background desktop agent loop STARTED.");
+        _agentLoopTask = Task.Run(() => BackgroundAgentLoopAsync(_agentCts.Token));
+    }
+
+    private async Task BackgroundAgentLoopAsync(CancellationToken cancellationToken)
+    {
+        var consecutiveErrors = 0;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var started = Stopwatch.GetTimestamp();
+
+            try
+            {
+                // This loop is intentionally independent of the WPF Dispatcher.
+                // Even when the window is hidden in the tray or the UI thread is
+                // busy rendering, Guard still receives a foreground heartbeat.
+                var sample = _sensor.Capture();
+                var response = await _client.SendAsync(
+                    new PipeRequest { Command = "activity", Activity = sample },
+                    timeoutMs: 900,
+                    cancellationToken: cancellationToken);
+
+                consecutiveErrors = response.Ok ? 0 : consecutiveErrors + 1;
+
+                if (!cancellationToken.IsCancellationRequested && response.Snapshot is not null)
+                {
+                    // Never await the UI dispatcher here. The next heartbeat must
+                    // not depend on whether WPF is currently busy.
+                    _ = Dispatcher.BeginInvoke(
+                        DispatcherPriority.Background,
+                        new Action(() =>
+                        {
+                            try
+                            {
+                                ApplyResponse(response);
+                                if (!response.Ok)
+                                    FooterText.Text = response.Message;
+                            }
+                            catch (Exception ex)
+                            {
+                                AppCrashLogger.Exception("ApplyResponse from background agent", ex);
+                            }
+                        }));
+                }
+
+                if (!response.Ok && consecutiveErrors == 1)
+                    AppCrashLogger.Info("Background agent temporarily cannot reach Guard: " + response.Message);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                consecutiveErrors++;
+                if (consecutiveErrors == 1 || consecutiveErrors % 10 == 0)
+                    AppCrashLogger.Exception("BackgroundAgentLoopAsync", ex);
+            }
+
+            var elapsed = (Stopwatch.GetTimestamp() - started) / (double)Stopwatch.Frequency;
+            var delay = TimeSpan.FromMilliseconds(Math.Max(100, 1000 - (elapsed * 1000)));
+
+            try
+            {
+                await Task.Delay(delay, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
         }
 
-        _timer.Start();
-    }
-
-    private async Task AgentTickAsync()
-    {
-        if (_busy) return;
-        _busy = true;
-        try
-        {
-            var response = await _client.SendAsync(new PipeRequest { Command = "activity", Activity = _sensor.Capture() });
-            ApplyResponse(response);
-        }
-        finally { _busy = false; }
+        AppCrashLogger.Info("Background desktop agent loop STOPPED.");
     }
 
     private void ApplyResponse(PipeResponse response)
@@ -67,35 +269,152 @@ public partial class MainWindow : Window
         _snapshot = response.Snapshot;
         var s = _snapshot.State;
 
-        ServiceStatusText.Text = _snapshot.ServiceOnline ? _snapshot.ServiceStatus : "Guard OFFLINE – không có bảo vệ nền";
-        CurrentStatusText.Text = _snapshot.CurrentMode;
-        CurrentAppText.Text = _snapshot.CurrentApp;
+        // Beginner-facing system state. Technical details live under Settings > Diagnostics.
+        if (!_snapshot.ServiceOnline)
+        {
+            ServiceStatusText.Text = "Cần kiểm tra";
+            SidebarStatusText.Text = "Bảo vệ nền đang offline";
+            ServiceStatusDot.Fill = BrushOf("DangerBrush");
+            SidebarStatusDot.Fill = BrushOf("DangerBrush");
+        }
+        else if (!_snapshot.HeartbeatHealthy)
+        {
+            ServiceStatusText.Text = "Đang khởi động";
+            SidebarStatusText.Text = "Đang kết nối tác nhân người dùng";
+            ServiceStatusDot.Fill = BrushOf("WarningBrush");
+            SidebarStatusDot.Fill = BrushOf("WarningBrush");
+        }
+        else
+        {
+            ServiceStatusText.Text = "Đang bảo vệ";
+            SidebarStatusText.Text = "Hệ thống hoạt động bình thường";
+            ServiceStatusDot.Fill = BrushOf("SuccessBrush");
+            SidebarStatusDot.Fill = BrushOf("SuccessBrush");
+        }
+
+        CurrentStatusText.Text = FriendlyMode(_snapshot.CurrentMode, _snapshot.IsIdle);
+        CurrentAppText.Text = string.IsNullOrWhiteSpace(_snapshot.CurrentApp) ? "—" : _snapshot.CurrentApp;
         ActivityScoreText.Text = _snapshot.ActivityEventsLastMinute.ToString();
-        HeartbeatText.Text = _snapshot.HeartbeatHealthy ? (_snapshot.InputMonitorHealthy ? "Heartbeat + human input OK" : "Heartbeat OK · input fallback") : "Heartbeat chưa ổn định";
+        HeartbeatText.Text = _snapshot.HeartbeatHealthy
+            ? (_snapshot.InputMonitorHealthy ? "Ổn định · input thật OK" : "Ổn định · đang dùng fallback")
+            : "Chưa ổn định";
 
         var target = Math.Max(60, s.Settings.FocusMinutesPerKey * 60);
         FocusProgressBar.Maximum = target;
         FocusProgressBar.Value = Math.Min(target, s.FocusProgressSeconds);
         FocusProgressText.Text = $"{Format(s.FocusProgressSeconds)} / {Format(target)}";
+        var remaining = Math.Max(0, target - s.FocusProgressSeconds);
+        HomeFocusRemainingText.Text = remaining == 0
+            ? "Đã đủ điều kiện nhận phần thưởng"
+            : $"Còn {HumanDuration(remaining)} để nhận +{s.Settings.RewardMinutesPerKey} phút giải trí";
+
         EntertainmentText.Text = Format(s.EntertainmentBalanceSeconds);
-        LockStateText.Text = s.ClockRollbackDetected ? "Khóa do thay đổi giờ" : s.EntertainmentBalanceSeconds > 0 ? "Đã mở khóa" : "Đang khóa";
+        RewardBalanceText.Text = Format(s.EntertainmentBalanceSeconds);
+        LockStateText.Text = s.ClockRollbackDetected
+            ? "Đang khóa vì phát hiện thay đổi giờ hệ thống"
+            : s.ControlPolicy.LockedSessionActive
+                ? $"Locked Session · tới {s.ControlPolicy.LockedSessionUntilUtc!.Value.ToLocalTime():HH:mm:ss}"
+                : s.ControlPolicy.WhitelistSessionActive
+                    ? $"Focus-only · tới {s.ControlPolicy.WhitelistSessionUntilUtc!.Value.ToLocalTime():HH:mm:ss}"
+                    : s.EntertainmentBalanceSeconds > 0 ? "Sẵn sàng sử dụng" : "Đang khóa · hãy Focus để nhận thưởng";
+        RewardRuleSummaryText.Text = $"{s.Settings.FocusMinutesPerKey} phút Focus → +{s.Settings.RewardMinutesPerKey} phút giải trí";
+
         TotalFocusText.Text = "Focus " + FormatLong(s.TotalFocusSeconds);
         TotalPlayText.Text = "Giải trí " + FormatLong(s.TotalEntertainmentSeconds);
         SuspiciousText.Text = "Nghi ngờ " + FormatLong(s.SuspiciousSeconds);
 
-        AppsGrid.ItemsSource = s.Apps;
-        BrowserRulesGrid.ItemsSource = s.BrowserRules;
-        BrowserBridgeStatusText.Text = _snapshot.BrowserBridgeHealthy ? $"✓ {_snapshot.CurrentBrowser} Extension + Native Host đang kết nối" : "⚠ Chưa nhận heartbeat từ Chrome/Edge Extension";
-        BrowserCurrentPageText.Text = $"Trang hiện tại: {_snapshot.CurrentBrowserTitle}";
+        // Applications: split into two beginner-friendly lists. Avoid rebinding every second so scrolling stays stable.
+        var appsFingerprint = string.Join("|", s.Apps.OrderBy(a => a.Id).Select(a => $"{a.Id}:{a.Category}:{a.Enabled}:{a.Name}:{a.ExePath}:{a.BlockAction}:{a.UseCustomBlockAction}:{a.BlockProfileId}:{a.BlockProfileName}"));
+        if (!string.Equals(appsFingerprint, _appsFingerprint, StringComparison.Ordinal))
+        {
+            _appsFingerprint = appsFingerprint;
+            var focusApps = s.Apps.Where(a => a.Category == AppCategory.Focus).OrderBy(a => a.Name).ToList();
+            var playApps = s.Apps.Where(a => a.Category == AppCategory.Entertainment).OrderBy(a => a.Name).ToList();
+            FocusAppsList.ItemsSource = focusApps;
+            EntertainmentAppsList.ItemsSource = playApps;
+            FocusAppsEmptyText.Visibility = focusApps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            EntertainmentAppsEmptyText.Visibility = playApps.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            AppsGrid.ItemsSource = s.Apps; // compatibility for old handlers
+        }
+
+        var profilesFingerprint = string.Join("|", s.BlockProfiles.OrderBy(p => p.CreatedUtc).Select(p =>
+            $"{p.Id}:{p.Name}:{p.Enabled}:{p.PolicyVersion}:{p.DefaultAccessPolicy}:{p.ScheduledAccessPolicy}:{p.ScheduleEnabled}:{p.WeeklyScheduleMask}:{p.DailyAllowanceMinutes}:{p.AllowanceDateKey}:{p.AllowanceUsedSeconds}:{p.DefaultBlockAction}:" +
+            $"A{s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)}:W{s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)}"));
+        if (!string.Equals(profilesFingerprint, _profilesFingerprint, StringComparison.Ordinal))
+        {
+            _profilesFingerprint = profilesFingerprint;
+            _profilePolicyFingerprint = profilesFingerprint;
+            var cards = s.BlockProfiles.OrderBy(p => p.CreatedUtc).Select(p => new ProfileCardViewModel
+            {
+                Profile = p,
+                MembershipSummary = $"{s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)} ứng dụng · {s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)} website"
+            }).ToList();
+            BlockProfilesItems.ItemsSource = cards;
+            ProfilePolicyItems.ItemsSource = cards;
+        }
+
+        RefreshControlPolicy(s);
+
+        // Browser rules: simple first, advanced optional.
+        var rulesFingerprint = string.Join("|", s.BrowserRules.OrderBy(r => r.Id).Select(r => $"{r.Id}:{r.Category}:{r.Enabled}:{r.MatchType}:{r.Pattern}:{r.Name}:{r.BlockProfileId}:{r.BlockProfileName}"));
+        if (!string.Equals(rulesFingerprint, _rulesFingerprint, StringComparison.Ordinal))
+        {
+            _rulesFingerprint = rulesFingerprint;
+            var focusRules = s.BrowserRules.Where(r => r.Category == AppCategory.Focus).OrderBy(r => r.DisplayName).ToList();
+            var playRules = s.BrowserRules.Where(r => r.Category == AppCategory.Entertainment).OrderBy(r => r.DisplayName).ToList();
+            BrowserFocusRulesList.ItemsSource = focusRules;
+            BrowserEntertainmentRulesList.ItemsSource = playRules;
+            BrowserFocusEmptyText.Visibility = focusRules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            BrowserEntertainmentEmptyText.Visibility = playRules.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            BrowserRulesGrid.ItemsSource = s.BrowserRules;
+        }
+
+        BrowserBridgeStatusText.Text = _snapshot.BrowserBridgeHealthy
+            ? $"✓ {_snapshot.CurrentBrowser} đã kết nối"
+            : "Extension chưa kết nối";
+        BrowserCurrentPageText.Text = _snapshot.CurrentBrowserTitle is "" or "—"
+            ? "Trang hiện tại: —"
+            : _snapshot.CurrentBrowserTitle;
         BrowserCurrentUrlText.Text = string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserUrl) ? "—" : _snapshot.CurrentBrowserUrl;
-        BrowserCurrentRuleText.Text = $"Rule: {_snapshot.CurrentBrowserRule} · {_snapshot.CurrentBrowserCategory}{(_snapshot.CurrentBrowserBlocked ? " · ĐANG KHÓA" : "")}";
-        KeysGrid.ItemsSource = s.Keys.OrderByDescending(k => k.CreatedUtc).ToList();
+        BrowserCurrentRuleText.Text = _snapshot.CurrentBrowserRule is "" or "—"
+            ? "Chưa khớp quy tắc nào"
+            : $"{FriendlyCategory(_snapshot.CurrentBrowserCategory)} · {_snapshot.CurrentBrowserRule}{(_snapshot.CurrentBrowserBlocked ? " · Đang khóa" : "")}";
+        BrowserFocusSignalText.Text = !_snapshot.BrowserBridgeHealthy
+            ? "Website Focus 2.0: Extension chưa gửi dữ liệu"
+            : _snapshot.CurrentBrowserCategory.Equals("Focus", StringComparison.OrdinalIgnoreCase)
+                ? _snapshot.BrowserFocusQualified
+                    ? _snapshot.BrowserMediaProgressing
+                        ? "✓ Đang cộng Focus · video/audio đang phát thật"
+                        : $"✓ Đang cộng Focus · {_snapshot.BrowserActivityEventsLastMinute} hoạt động web/phút"
+                    : "⏸ Chưa cộng Focus · click/gõ/cuộn để mở 90 giây đọc chủ động, hoặc phát video/audio"
+                : _snapshot.CurrentBrowserBlocked
+                    ? "🔒 Website giải trí đang bị khóa"
+                    : "Website Focus: trang hiện tại không thuộc nhóm học";
+
+        BrowserChargeStatusText.Text = _snapshot.CurrentBrowserCategory.Equals("Giải trí", StringComparison.OrdinalIgnoreCase)
+            ? $"Giải trí web · Profile: {_snapshot.CurrentBrowserProfile} · {_snapshot.CurrentBrowserAccess} · Ví {Format(s.EntertainmentBalanceSeconds)}" +
+              (_snapshot.CurrentBrowserAllowanceRemainingSeconds > 0 ? $" · Allowance còn {Format(_snapshot.CurrentBrowserAllowanceRemainingSeconds)}" : "")
+            : "Giải trí web: —";
+
+        var keys = s.Keys.OrderByDescending(k => k.CreatedUtc).ToList();
+        var activeKeys = keys.Where(k => !k.IsRedeemed && !k.IsExpired && !k.Revoked).ToList();
+        var keysFingerprint = string.Join("|", keys.Select(k => $"{k.Id}:{k.RedeemedUtc:O}:{k.Revoked}:{k.ExpiresUtc:O}:{k.IsExpired}:{k.RemainingLabel}"));
+        if (!string.Equals(keysFingerprint, _keysFingerprint, StringComparison.Ordinal))
+        {
+            _keysFingerprint = keysFingerprint;
+            KeysGrid.ItemsSource = keys;
+            ActiveRewardItems.ItemsSource = activeKeys;
+        }
+        ActiveRewardCountText.Text = $"{activeKeys.Count} phần thưởng";
+        NoRewardsText.Visibility = activeKeys.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        HomeRewardText.Text = activeKeys.Count == 0 ? "0 khả dụng" : $"{activeKeys.Count} khả dụng";
+
         AuditGrid.ItemsSource = s.AuditLog.OrderByDescending(a => a.AtUtc).ToList();
         SessionsGrid.ItemsSource = s.SessionHistory.OrderByDescending(x => x.StartedUtc).Take(100).ToList();
 
-        var newest = s.Keys.OrderByDescending(k => k.CreatedUtc).FirstOrDefault()?.Code;
+        var newest = keys.FirstOrDefault()?.Code;
         if (_lastNewestKey is not null && newest is not null && newest != _lastNewestKey)
-            FooterText.Text = $"🎁 Key mới: {newest}";
+            FooterText.Text = $"🎁 Có phần thưởng mới: +{s.Settings.RewardMinutesPerKey} phút giải trí";
         _lastNewestKey = newest;
 
         if (!_settingsLoaded && _snapshot.ServiceOnline)
@@ -106,6 +425,7 @@ public partial class MainWindow : Window
         }
 
         RefreshStatistics();
+        UpdateOnboardingCounts();
         RefreshBubble();
         if (!response.Ok) FooterText.Text = response.Message;
     }
@@ -124,23 +444,27 @@ public partial class MainWindow : Window
         StatsPeriodLabel.Text = period.Label;
         StatsFocusText.Text = FormatLong(period.FocusSeconds);
         StatsPlayText.Text = FormatLong(period.EntertainmentSeconds);
-        StatsFocusPercentText.Text = $"{period.FocusPercent:0}% thời gian Focus/Play";
-        StatsPlayPercentText.Text = $"{period.EntertainmentPercent:0}% thời gian Focus/Play";
+        StatsFocusPercentText.Text = $"{period.FocusPercent:0}% của Focus/Play";
+        StatsPlayPercentText.Text = $"{period.EntertainmentPercent:0}% của Focus/Play";
         StatsKeyText.Text = $"{period.KeysGenerated} tạo · {period.KeysRedeemed} dùng";
-        StatsRewardText.Text = $"{period.KeysExpired} hết hạn · +{FormatLong(period.RewardSecondsGranted)} thưởng";
+        StatsRewardText.Text = $"{period.KeysExpired} hết hạn · +{FormatLong(period.RewardSecondsGranted)}";
         StatsStreakText.Text = $"🔥 {analytics.CurrentStreakDays} ngày";
-        StatsBestStreakText.Text = $"Kỷ lục {analytics.BestStreakDays} ngày · mục tiêu {analytics.StreakGoalMinutes} phút/ngày";
-        StatsSuspiciousText.Text = $"Thời gian nghi ngờ: {FormatLong(period.SuspiciousSeconds)}";
+        StatsBestStreakText.Text = $"Kỷ lục {analytics.BestStreakDays} ngày";
+        StatsSuspiciousText.Text = $"Thời gian bị đánh dấu nghi ngờ: {FormatLong(period.SuspiciousSeconds)}";
+
+        HomeTodayFocusText.Text = FormatLong(analytics.Today.FocusSeconds);
+        HomeTodayPlayText.Text = FormatLong(analytics.Today.EntertainmentSeconds);
+        HomeStreakText.Text = $"{analytics.CurrentStreakDays} ngày";
 
         StatsAppsGrid.ItemsSource = period.Apps.Take(30).Select(x => new AppStatsView
         {
             AppName = x.AppName,
-            Category = x.Category,
+            Category = FriendlyCategory(x.Category),
             Duration = FormatLong(x.Seconds)
         }).ToList();
 
         var maxSeconds = Math.Max(1L, analytics.Last7Days.SelectMany(x => new[] { x.FocusSeconds, x.EntertainmentSeconds }).DefaultIfEmpty(1L).Max());
-        const double maxWidth = 270;
+        const double maxWidth = 320;
         WeeklyChartItems.ItemsSource = analytics.Last7Days.Select(x => new ChartRowView
         {
             DayLabel = x.DayLabel,
@@ -159,35 +483,561 @@ public partial class MainWindow : Window
 
     private void RefreshBubble()
     {
-        if (_snapshot is null) return;
-        var state = _snapshot.State;
-        if (!state.Settings.BubbleEnabled)
+        try
         {
-            _bubble?.Hide();
-            return;
-        }
+            if (_snapshot is null) return;
+            var state = _snapshot.State;
+            if (!state.Settings.BubbleEnabled)
+            {
+                _bubble?.Hide();
+                return;
+            }
 
-        _bubble ??= new BubbleWindow();
-        if (!_bubble.IsVisible) _bubble.Show();
-        var isEntertainment = _snapshot.CurrentMode.Contains("giải trí", StringComparison.OrdinalIgnoreCase);
-        var target = Math.Max(60, state.Settings.FocusMinutesPerKey * 60);
-        var time = isEntertainment ? TimeSpan.FromSeconds(state.EntertainmentBalanceSeconds) : TimeSpan.FromSeconds(Math.Max(0, target - state.FocusProgressSeconds));
-        var title = !_snapshot.ServiceOnline ? "⚠ GUARD OFFLINE" : isEntertainment ? "🎮 GIẢI TRÍ" : _snapshot.IsIdle ? "⏸ FOCUS PAUSED" : "🎓 FOCUS";
-        _bubble.Update(title, time, $"{_snapshot.CurrentMode} · {_snapshot.CurrentApp}");
+            _bubble ??= new BubbleWindow();
+            if (!_bubble.IsVisible) _bubble.Show();
+            var target = Math.Max(60, state.Settings.FocusMinutesPerKey * 60);
+            if (!_snapshot.ServiceOnline)
+            {
+                _bubble.Update("⚠ CẦN KIỂM TRA", "--:--", "FocusLock Guard chưa sẵn sàng");
+                return;
+            }
+
+            var browserEntertainmentActive = _snapshot.BrowserForegroundActive &&
+                                             _snapshot.BrowserDocumentVisible &&
+                                             _snapshot.CurrentBrowserCategory.Equals("Giải trí", StringComparison.OrdinalIgnoreCase);
+            if (_snapshot.EntertainmentSessionActive || browserEntertainmentActive)
+            {
+                var fromBrowserFallback = !_snapshot.EntertainmentSessionActive && browserEntertainmentActive;
+                var access = fromBrowserFallback ? _snapshot.CurrentBrowserAccess : _snapshot.EntertainmentAccessMode;
+                var profile = fromBrowserFallback ? _snapshot.CurrentBrowserProfile : _snapshot.EntertainmentProfileName;
+                var allowance = fromBrowserFallback ? _snapshot.CurrentBrowserAllowanceRemainingSeconds : _snapshot.EntertainmentAllowanceRemainingSeconds;
+                var wallet = _snapshot.EntertainmentWalletRemainingSeconds;
+                var title = access.Contains("khóa", StringComparison.OrdinalIgnoreCase)
+                    ? "🔒 HẾT THỜI GIAN"
+                    : "🎮 GIẢI TRÍ";
+
+                string timeText;
+                string detail;
+                if (access.Contains("khóa", StringComparison.OrdinalIgnoreCase))
+                {
+                    timeText = "00:00";
+                    detail = $"{profile} · quyền giải trí hiện đang bị khóa";
+                }
+                else if (access.Contains("tự do", StringComparison.OrdinalIgnoreCase) || access.Contains("miễn phí", StringComparison.OrdinalIgnoreCase))
+                {
+                    timeText = "TỰ DO";
+                    var currentTarget = !string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost) && _snapshot.CurrentBrowserHost != "—"
+                        ? _snapshot.CurrentBrowserHost
+                        : _snapshot.CurrentApp;
+                    detail = $"{profile} · {currentTarget}";
+                }
+                else
+                {
+                    var remain = fromBrowserFallback
+                        ? access.Contains("allowance", StringComparison.OrdinalIgnoreCase) ? Math.Max(0, allowance) + Math.Max(0, wallet) : Math.Max(0, wallet)
+                        : Math.Max(0, _snapshot.EntertainmentUsableRemainingSeconds);
+                    timeText = Format(remain);
+                    detail = access.Contains("allowance", StringComparison.OrdinalIgnoreCase)
+                        ? $"Allowance {Format(allowance)} + ví {Format(wallet)} · {profile}"
+                        : $"Ví Focus còn {Format(wallet)} · {profile}";
+                }
+                _bubble.Update(title, timeText, detail);
+                return;
+            }
+
+            var focusTime = TimeSpan.FromSeconds(Math.Max(0, target - state.FocusProgressSeconds));
+            var mode = _snapshot.CurrentMode ?? "";
+            var browserFocusActive =
+                _snapshot.BrowserForegroundActive &&
+                _snapshot.BrowserDocumentVisible &&
+                _snapshot.CurrentBrowserCategory.Equals("Focus", StringComparison.OrdinalIgnoreCase) &&
+                _snapshot.BrowserFocusQualified;
+            var desktopFocusActive =
+                mode.Contains("Đang học / làm việc", StringComparison.OrdinalIgnoreCase);
+            var focusActive = !_snapshot.IsIdle && (browserFocusActive || desktopFocusActive);
+
+            if (focusActive)
+            {
+                var detailTarget = browserFocusActive && !string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost)
+                    ? _snapshot.CurrentBrowserHost
+                    : _snapshot.CurrentApp;
+                _bubble.Update(
+                    "● ĐANG TẬP TRUNG",
+                    focusTime,
+                    $"+{state.Settings.RewardMinutesPerKey} phút sau khi đủ phiên · {detailTarget}");
+            }
+            else
+            {
+                var pauseReason = _snapshot.IsIdle
+                    ? "Không có hoạt động · thời gian không được cộng"
+                    : mode.Contains("hoạt động quá thấp", StringComparison.OrdinalIgnoreCase)
+                        ? "Hoạt động quá thấp · Focus đang tạm dừng"
+                        : mode.Contains("chờ tương tác", StringComparison.OrdinalIgnoreCase)
+                            ? "Website cần click/gõ/cuộn hoặc media đang phát"
+                            : $"{FriendlyMode(mode, _snapshot.IsIdle)} · {_snapshot.CurrentApp}";
+                _bubble.Update("⏸ TẠM DỪNG", focusTime, pauseReason);
+            }
+        }
+        catch (Exception ex)
+        {
+            // A bubble/XAML problem must never be allowed to close the main app.
+            AppCrashLogger.Exception("RefreshBubble", ex);
+            try { _bubble?.Close(); } catch { }
+            _bubble = null;
+        }
     }
 
+    // Navigation -----------------------------------------------------------------
+    private void Navigate_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton rb && int.TryParse(rb.Tag?.ToString(), out var index)) NavigateTo(index);
+    }
+
+    private void NavigateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && int.TryParse(button.Tag?.ToString(), out var index)) NavigateTo(index);
+    }
+
+    private void NavigateTo(int index)
+    {
+        if (index < 0 || index >= MainTabs.Items.Count) return;
+        MainTabs.SelectedIndex = index;
+        var nav = new[] { NavHome, NavApps, NavWeb, NavRewards, NavStats, NavControl, NavSettings };
+        if (index < nav.Length) nav[index].IsChecked = true;
+        PageTitleText.Text = _pages[index].Title;
+        PageSubtitleText.Text = _pages[index].Subtitle;
+    }
+
+    // Applications ----------------------------------------------------------------
     private void AddFocusApp_Click(object sender, RoutedEventArgs e) => _ = AddAppAsync(AppCategory.Focus);
     private void AddEntertainmentApp_Click(object sender, RoutedEventArgs e) => _ = AddAppAsync(AppCategory.Entertainment);
 
     private async Task AddAppAsync(AppCategory category)
     {
-        var dlg = new OpenFileDialog { Filter = "Ứng dụng Windows (*.exe)|*.exe", Multiselect = false };
+        var dlg = new OpenFileDialog { Filter = "Ứng dụng Windows (*.exe)|*.exe", Multiselect = false, Title = category == AppCategory.Focus ? "Chọn ứng dụng học/làm việc" : "Chọn ứng dụng giải trí" };
         if (dlg.ShowDialog(this) != true) return;
-        var full = Path.GetFullPath(dlg.FileName);
-        var app = TrackedApp.FromPath(full, category, FileHashService.TrySha256(full));
-        ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "addApp", App = app }));
+        await AddAppPathAsync(dlg.FileName, category);
     }
 
+    private async Task AddAppPathAsync(string path, AppCategory category)
+    {
+        var full = Path.GetFullPath(path);
+        var app = TrackedApp.FromPath(full, category, FileHashService.TrySha256(full));
+        var response = await _client.SendAsync(new PipeRequest { Command = "addApp", App = app });
+        ApplyResponse(response);
+        FooterText.Text = response.Ok ? $"Đã thêm {app.Name} vào {FriendlyCategory(category.ToString())}." : response.Message;
+    }
+
+    private void AddRunningFocusApp_Click(object sender, RoutedEventArgs e) => _ = AddRunningAppAsync(AppCategory.Focus);
+    private void AddRunningEntertainmentApp_Click(object sender, RoutedEventArgs e) => _ = AddRunningAppAsync(AppCategory.Entertainment);
+
+    private async Task AddRunningAppAsync(AppCategory category)
+    {
+        var picker = new RunningAppsWindow(category) { Owner = this };
+        if (picker.ShowDialog() != true || string.IsNullOrWhiteSpace(picker.SelectedPath)) return;
+        await AddAppPathAsync(picker.SelectedPath, category);
+    }
+
+    private async void ToggleAppCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: TrackedApp app }) return;
+        ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "toggleApp", AppId = app.Id }));
+    }
+
+    private async void CycleAppBlockAction_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: TrackedApp app }) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "cycleAppLock", AppId = app.Id });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void CycleAppProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: TrackedApp app }) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "cycleAppProfile", AppId = app.Id });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void EditAppPolicy_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snapshot is null || sender is not Button { CommandParameter: TrackedApp app }) return;
+        var dialog = new AppPolicyWindow(app, _snapshot.State.BlockProfiles) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = app.Id, BlockProfileId = dialog.SelectedProfileId }));
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "setAppBlockAction", AppId = app.Id, UseCustomBlockAction = dialog.UseCustomBlockAction, BlockAction = dialog.SelectedBlockAction
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private void OpenProfileCenter_Click(object sender, RoutedEventArgs e)
+    {
+        var center = new ProfileCenterWindow { Owner = this };
+        center.ShowDialog();
+    }
+
+    private async void AddBlockProfile_Click(object sender, RoutedEventArgs e)
+    {
+        var name = NewBlockProfileNameBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            MessageBox.Show(this, "Nhập tên profile, ví dụ Game, Mạng xã hội hoặc Video.", "Block Profiles");
+            return;
+        }
+        var access = ProfileAccessPolicy.EarnedTime;
+        if (NewBlockProfileModeCombo.SelectedItem is ComboBoxItem item &&
+            item.Tag is string tag &&
+            Enum.TryParse<ProfileAccessPolicy>(tag, true, out var parsedAccess))
+            access = parsedAccess;
+
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "addBlockProfile",
+            BlockProfile = new BlockProfile
+            {
+                Name = name, PolicyVersion = 2, DefaultAccessPolicy = access,
+                ScheduledAccessPolicy = ProfileAccessPolicy.Block, DefaultBlockAction = EntertainmentBlockAction.Close
+            }
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+        if (response.Ok) NewBlockProfileNameBox.Clear();
+    }
+
+    private async void ToggleBlockProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BlockProfile profile }) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "toggleBlockProfile", BlockProfileId = profile.Id });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void RemoveBlockProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BlockProfile profile }) return;
+        var confirm = MessageBox.Show(this, $"Xóa profile {profile.Name}? Ứng dụng trong profile sẽ tự chuyển sang profile khác.", "Xóa Block Profile", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "removeBlockProfile", BlockProfileId = profile.Id });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void EditBlockProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snapshot is null || sender is not Button { CommandParameter: BlockProfile profile }) return;
+        var editor = new ProfileEditorWindow(profile, _snapshot.State.Apps, _snapshot.State.BrowserRules) { Owner = this };
+        if (editor.ShowDialog() != true) return;
+
+        var response = await _client.SendAsync(new PipeRequest { Command = "updateBlockProfile", BlockProfile = editor.EditedProfile });
+        ApplyResponse(response);
+        if (!response.Ok) { FooterText.Text = response.Message; return; }
+
+        var otherProfile = _snapshot?.State.BlockProfiles.FirstOrDefault(p => p.Id != profile.Id && string.Equals(p.Name, "Giải trí chung", StringComparison.OrdinalIgnoreCase))
+                           ?? _snapshot?.State.BlockProfiles.FirstOrDefault(p => p.Id != profile.Id);
+        foreach (var member in editor.AppMembers)
+        {
+            if (member.IsMember)
+            {
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = member.Id, BlockProfileId = profile.Id }));
+            }
+            else if (member.WasMember && otherProfile is not null)
+            {
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = member.Id, BlockProfileId = otherProfile.Id }));
+            }
+        }
+        foreach (var member in editor.WebsiteMembers)
+        {
+            if (member.IsMember)
+            {
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = member.Id, BlockProfileId = profile.Id }));
+            }
+            else if (member.WasMember && otherProfile is not null)
+            {
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = member.Id, BlockProfileId = otherProfile.Id }));
+            }
+        }
+        FooterText.Text = $"Đã lưu Profile {editor.EditedProfile.Name} và thành viên App/Website.";
+    }
+
+    private async void CycleProfileMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BlockProfile profile }) return;
+        profile.Mode = profile.Mode switch
+        {
+            BlockProfileMode.EarnedTime => BlockProfileMode.AllowanceThenEarned,
+            BlockProfileMode.AllowanceThenEarned => BlockProfileMode.ScheduleBlock,
+            BlockProfileMode.ScheduleBlock => BlockProfileMode.ScheduleEarnedTime,
+            BlockProfileMode.ScheduleEarnedTime => BlockProfileMode.AlwaysBlock,
+            _ => BlockProfileMode.EarnedTime
+        };
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "updateBlockProfile",
+            BlockProfile = profile
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void CycleProfileBlockAction_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BlockProfile profile }) return;
+        profile.DefaultBlockAction = profile.DefaultBlockAction switch
+        {
+            EntertainmentBlockAction.Close => EntertainmentBlockAction.Suspend,
+            EntertainmentBlockAction.Suspend => EntertainmentBlockAction.BlockLaunch,
+            _ => EntertainmentBlockAction.Close
+        };
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "updateBlockProfile",
+            BlockProfile = profile
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void OpenWeeklySchedule_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BlockProfile profile }) return;
+        var editor = new WeeklyScheduleWindow(profile);
+        if (editor.ShowDialog() != true) return;
+
+        profile.WeeklyScheduleMask = editor.ScheduleMask;
+        profile.ScheduleEnabled = editor.ScheduleEnabled;
+
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "updateBlockProfile",
+            BlockProfile = profile
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void SaveProfilePolicy_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BlockProfile profile }) return;
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "updateBlockProfile",
+            BlockProfile = profile
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void EnableSettingsTextProtection_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(this,
+            "Bật bảo vệ cài đặt bằng đoạn văn? Từ lúc bật, mọi thay đổi app, website, profile và thời gian đều bị khóa cho tới khi bạn gõ đúng toàn bộ đoạn xác nhận.",
+            "Bảo vệ cài đặt", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "enableSettingsTextProtection" });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void UnlockSettingsTextProtection_Click(object sender, RoutedEventArgs e)
+    {
+        var typed = SettingsChallengeInput.Text;
+        if (string.IsNullOrWhiteSpace(typed))
+        {
+            MessageBox.Show(this, "Hãy tự gõ đầy đủ đoạn xác nhận trước.", "Bảo vệ cài đặt");
+            return;
+        }
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "unlockSettingsTextProtection",
+            TextValue = typed
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+        if (response.Ok) SettingsChallengeInput.Clear();
+    }
+
+    private async void EnableSettingsTimeProtection_Click(object sender, RoutedEventArgs e)
+    {
+        if (SettingsProtectionStartDatePicker.SelectedDate is not DateTime startDate ||
+            SettingsProtectionEndDatePicker.SelectedDate is not DateTime endDate ||
+            !TimeOnly.TryParse(SettingsProtectionStartTimeBox.Text, out var startTime) ||
+            !TimeOnly.TryParse(SettingsProtectionEndTimeBox.Text, out var endTime))
+        {
+            MessageBox.Show(this, "Hãy chọn ngày và nhập giờ theo dạng HH:mm.", "Bảo vệ cài đặt");
+            return;
+        }
+
+        var startLocal = DateTime.SpecifyKind(startDate.Date.Add(startTime.ToTimeSpan()), DateTimeKind.Local);
+        var endLocal = DateTime.SpecifyKind(endDate.Date.Add(endTime.ToTimeSpan()), DateTimeKind.Local);
+        if (endLocal <= startLocal.AddMinutes(1))
+        {
+            MessageBox.Show(this, "Thời điểm kết thúc phải sau thời điểm bắt đầu ít nhất 2 phút.", "Bảo vệ cài đặt");
+            return;
+        }
+
+        var confirm = MessageBox.Show(this,
+            $"Khóa thay đổi cấu hình từ {startLocal:dd/MM/yyyy HH:mm} tới {endLocal:dd/MM/yyyy HH:mm}? Khi khoảng khóa bắt đầu sẽ không có nút mở sớm.",
+            "Bảo vệ cài đặt theo thời gian", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "enableSettingsTimeProtection",
+            StartUtc = startLocal.ToUniversalTime(),
+            UntilUtc = endLocal.ToUniversalTime()
+        });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void EnableStrict_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPositiveInt(StrictDelayBox.Text, out var minutes) || minutes > 1440)
+        {
+            MessageBox.Show(this, "Thời gian chờ Strict phải từ 1 đến 1440 phút.", "Strict Mode");
+            return;
+        }
+        var confirm = MessageBox.Show(this,
+            $"Bật Strict Mode? Sau khi bật, bạn không thể sửa cấu hình cho tới khi yêu cầu mở và chờ đủ {minutes} phút.",
+            "Bật Strict Mode", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "enableStrict", DurationMinutes = minutes });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void RequestStrictUnlock_Click(object sender, RoutedEventArgs e)
+    {
+        var response = await _client.SendAsync(new PipeRequest { Command = "requestStrictUnlock" });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void DisableStrict_Click(object sender, RoutedEventArgs e)
+    {
+        var response = await _client.SendAsync(new PipeRequest { Command = "disableStrict" });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void StartLockedSession_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPositiveInt(LockedSessionMinutesBox.Text, out var minutes) || minutes > 1440)
+        {
+            MessageBox.Show(this, "Locked Session phải từ 1 đến 1440 phút.", "Locked Session");
+            return;
+        }
+        var confirm = MessageBox.Show(this,
+            $"Bắt đầu Locked Session {minutes} phút? Phiên này không thể hủy và sẽ khóa mọi app/website giải trí đã khai báo.",
+            "Locked Session", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "startLockedSession", DurationMinutes = minutes });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void StartWhitelistSession_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPositiveInt(WhitelistMinutesBox.Text, out var minutes) || minutes > 1440)
+        {
+            MessageBox.Show(this, "Focus-only phải từ 1 đến 1440 phút.", "Focus-only");
+            return;
+        }
+        var confirm = MessageBox.Show(this,
+            $"Bắt đầu Focus-only {minutes} phút? Phiên không thể hủy. Trên browser chỉ rule Học/Làm việc được phép.",
+            "Focus-only / Whitelist", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "startWhitelistSession", DurationMinutes = minutes });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private void RefreshControlPolicy(AppState state)
+    {
+        var policy = state.ControlPolicy ?? new ControlPolicy();
+        var now = DateTime.UtcNow;
+
+        var textProtection = policy.SettingsTextProtectionActive;
+        var timeProtection = policy.SettingsTimeProtectionActive;
+        var timeConfigured = policy.SettingsProtectionMode == SettingsProtectionMode.TimeWindow &&
+                             policy.SettingsProtectionStartUtc is DateTime && policy.SettingsProtectionUntilUtc is DateTime;
+
+        if (textProtection)
+            SettingsProtectionStatusText.Text = "🔒 Đang bảo vệ · muốn sửa phải gõ đoạn xác nhận";
+        else if (timeProtection && policy.SettingsProtectionUntilUtc is DateTime protectionUntil)
+            SettingsProtectionStatusText.Text = $"🔒 Không thể sửa tới {protectionUntil.ToLocalTime():dd/MM HH:mm:ss}";
+        else if (timeConfigured && policy.SettingsProtectionStartUtc is DateTime protectionStart && policy.SettingsProtectionUntilUtc is DateTime scheduledUntil && scheduledUntil > now)
+            SettingsProtectionStatusText.Text = $"◷ Đã lên lịch {protectionStart.ToLocalTime():dd/MM HH:mm} → {scheduledUntil.ToLocalTime():dd/MM HH:mm}";
+        else
+            SettingsProtectionStatusText.Text = "○ Chưa bảo vệ cấu hình";
+
+        SettingsChallengePanel.Visibility = textProtection ? Visibility.Visible : Visibility.Collapsed;
+        if (textProtection) SettingsChallengeText.Text = policy.SettingsUnlockChallenge;
+
+        var protectionConfiguredAndFuture = textProtection || timeProtection ||
+                                            (timeConfigured && policy.SettingsProtectionUntilUtc is DateTime futureUntil && futureUntil > now);
+        EnableSettingsTextProtectionButton.IsEnabled = !protectionConfiguredAndFuture;
+        EnableSettingsTimeProtectionButton.IsEnabled = !protectionConfiguredAndFuture;
+
+        if (!SettingsProtectionStartDatePicker.IsKeyboardFocusWithin && !SettingsProtectionStartTimeBox.IsKeyboardFocusWithin &&
+            !SettingsProtectionEndDatePicker.IsKeyboardFocusWithin && !SettingsProtectionEndTimeBox.IsKeyboardFocusWithin)
+        {
+            var startLocal = policy.SettingsProtectionStartUtc?.ToLocalTime() ?? DateTime.Now;
+            var endLocal = policy.SettingsProtectionUntilUtc?.ToLocalTime() ?? DateTime.Now.AddHours(2);
+            SettingsProtectionStartDatePicker.SelectedDate = startLocal.Date;
+            SettingsProtectionStartTimeBox.Text = startLocal.ToString("HH:mm");
+            SettingsProtectionEndDatePicker.SelectedDate = endLocal.Date;
+            SettingsProtectionEndTimeBox.Text = endLocal.ToString("HH:mm");
+        }
+
+        if (!StrictDelayBox.IsKeyboardFocusWithin)
+            StrictDelayBox.Text = Math.Max(1, policy.StrictUnlockDelayMinutes).ToString();
+
+        if (!policy.StrictModeEnabled)
+        {
+            StrictStatusText.Text = "○ Strict Mode đang tắt";
+        }
+        else if (policy.StrictUnlockReady)
+        {
+            StrictStatusText.Text = "✓ Đã hết thời gian chờ · có thể tắt Strict Mode";
+        }
+        else if (policy.StrictUnlockAvailableUtc is DateTime ready)
+        {
+            StrictStatusText.Text = $"🔒 Strict Mode · có thể tắt sau {ready.ToLocalTime():dd/MM HH:mm:ss}";
+        }
+        else
+        {
+            StrictStatusText.Text = $"🔒 Strict Mode · muốn tắt phải yêu cầu mở và chờ {policy.StrictUnlockDelayMinutes} phút";
+        }
+        EnableStrictButton.IsEnabled = !policy.StrictModeEnabled;
+        RequestStrictUnlockButton.IsEnabled = policy.StrictModeEnabled && policy.StrictUnlockRequestedUtc is null;
+        DisableStrictButton.IsEnabled = policy.StrictUnlockReady;
+        var configurationLocked = policy.SettingsProtectionActive || policy.StrictModeEnabled || policy.LockedSessionActive || policy.WhitelistSessionActive;
+        BasicSettingsPanel.IsEnabled = !configurationLocked;
+        ProfilePolicyItems.IsEnabled = !configurationLocked;
+
+        LockedSessionStatusText.Text = policy.LockedSessionUntilUtc is DateTime lockedUntil && lockedUntil > now
+            ? $"🔒 Đang khóa tới {lockedUntil.ToLocalTime():dd/MM HH:mm:ss} · còn {HumanDuration((int)Math.Ceiling((lockedUntil - now).TotalSeconds))}"
+            : "○ Chưa có Locked Session";
+
+        WhitelistStatusText.Text = policy.WhitelistSessionUntilUtc is DateTime whiteUntil && whiteUntil > now
+            ? $"✓ Focus-only tới {whiteUntil.ToLocalTime():dd/MM HH:mm:ss} · còn {HumanDuration((int)Math.Ceiling((whiteUntil - now).TotalSeconds))}"
+            : "○ Focus-only chưa chạy";
+    }
+
+    private async void RemoveAppCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: TrackedApp app }) return;
+        var confirm = MessageBox.Show(this, $"Xóa {app.Name} khỏi FocusLock?", "Xóa ứng dụng", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+        ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "removeApp", AppId = app.Id }));
+    }
+
+    // Legacy hidden handlers kept for compatibility.
     private async void RemoveApp_Click(object sender, RoutedEventArgs e)
     {
         if (AppsGrid.SelectedItem is not TrackedApp app) return;
@@ -200,24 +1050,49 @@ public partial class MainWindow : Window
         ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "toggleApp", AppId = app.Id }));
     }
 
+    // Browser ---------------------------------------------------------------------
     private void AddBrowserFocusRule_Click(object sender, RoutedEventArgs e) => _ = AddBrowserRuleAsync(AppCategory.Focus);
     private void AddBrowserEntertainmentRule_Click(object sender, RoutedEventArgs e) => _ = AddBrowserRuleAsync(AppCategory.Entertainment);
+    private void AddSimpleBrowserFocus_Click(object sender, RoutedEventArgs e) => _ = AddSimpleBrowserRuleAsync(AppCategory.Focus);
+    private void AddSimpleBrowserEntertainment_Click(object sender, RoutedEventArgs e) => _ = AddSimpleBrowserRuleAsync(AppCategory.Entertainment);
+
+    private async Task AddSimpleBrowserRuleAsync(AppCategory category)
+    {
+        var pattern = NormalizeHost(SimpleBrowserRuleBox.Text);
+        if (string.IsNullOrWhiteSpace(pattern))
+        {
+            MessageBox.Show(this, "Nhập website, ví dụ youtube.com hoặc coursera.org.", "Thêm website");
+            return;
+        }
+
+        var rule = new BrowserRule
+        {
+            Name = pattern,
+            Pattern = pattern,
+            MatchType = BrowserRuleMatchType.HostSuffix,
+            Category = category,
+            Enabled = true
+        };
+        var response = await _client.SendAsync(new PipeRequest { Command = "addBrowserRule", BrowserRule = rule });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+        if (response.Ok) SimpleBrowserRuleBox.Clear();
+    }
 
     private async Task AddBrowserRuleAsync(AppCategory category)
     {
         var pattern = BrowserRulePatternBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(pattern))
         {
-            MessageBox.Show(this, "Hãy nhập domain/URL/tiêu đề cần phân loại.", "FocusLock V5");
+            MessageBox.Show(this, "Hãy nhập domain, URL hoặc tiêu đề cần phân loại.", "Thêm quy tắc nâng cao");
             return;
         }
 
-        var matchType = GetBrowserMatchType();
         var rule = new BrowserRule
         {
             Name = BrowserRuleNameBox.Text.Trim(),
             Pattern = pattern,
-            MatchType = matchType,
+            MatchType = GetBrowserMatchType(),
             Category = category,
             Enabled = true
         };
@@ -238,11 +1113,21 @@ public partial class MainWindow : Window
         return BrowserRuleMatchType.HostSuffix;
     }
 
+    private void UseCurrentSimpleBrowserPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snapshot is null || string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost) || _snapshot.CurrentBrowserHost == "—")
+        {
+            MessageBox.Show(this, "Chưa nhận được website hiện tại. Hãy mở Chrome/Edge và kiểm tra Extension.", "FocusLock");
+            return;
+        }
+        SimpleBrowserRuleBox.Text = _snapshot.CurrentBrowserHost;
+    }
+
     private void UseCurrentBrowserPage_Click(object sender, RoutedEventArgs e)
     {
         if (_snapshot is null || string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserUrl))
         {
-            MessageBox.Show(this, "Chưa nhận được trang hiện tại từ Browser Extension.", "FocusLock V5");
+            MessageBox.Show(this, "Chưa nhận được trang hiện tại từ Browser Extension.", "FocusLock");
             return;
         }
 
@@ -255,6 +1140,38 @@ public partial class MainWindow : Window
         };
         if (string.IsNullOrWhiteSpace(BrowserRuleNameBox.Text))
             BrowserRuleNameBox.Text = _snapshot.CurrentBrowserHost == "—" ? _snapshot.CurrentBrowserTitle : _snapshot.CurrentBrowserHost;
+    }
+
+    private async void ToggleBrowserRuleCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BrowserRule rule }) return;
+        ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "toggleBrowserRule", BrowserRuleId = rule.Id }));
+    }
+
+    private async void EditBrowserProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snapshot is null || sender is not Button { CommandParameter: BrowserRule rule }) return;
+        var dialog = new ProfileAssignmentWindow(rule.DisplayName, rule.BlockProfileId, _snapshot.State.BlockProfiles) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = rule.Id, BlockProfileId = dialog.SelectedProfileId });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void CycleBrowserProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BrowserRule rule }) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "cycleBrowserProfile", BrowserRuleId = rule.Id });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private async void RemoveBrowserRuleCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: BrowserRule rule }) return;
+        var confirm = MessageBox.Show(this, $"Xóa quy tắc {rule.DisplayName}?", "Xóa website", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+        ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "removeBrowserRule", BrowserRuleId = rule.Id }));
     }
 
     private async void ToggleBrowserRule_Click(object sender, RoutedEventArgs e)
@@ -271,14 +1188,23 @@ public partial class MainWindow : Window
 
     private void OpenExtensionFolder_Click(object sender, RoutedEventArgs e)
     {
-        // Code-folder mode: App lives in <root>\App and the extension lives in <root>\BrowserExtension.
         var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "BrowserExtension"));
         if (!Directory.Exists(path))
         {
-            MessageBox.Show(this, "Không tìm thấy thư mục BrowserExtension cạnh thư mục App. Hãy chạy build-release.ps1.", "FocusLock V5");
+            MessageBox.Show(this, "Không tìm thấy BrowserExtension cạnh thư mục App. Hãy chạy CAI_DAT.bat lại.", "FocusLock");
             return;
         }
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+    }
+
+    // Rewards ---------------------------------------------------------------------
+    private async void RedeemKeyCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: RewardKey key }) return;
+        var response = await _client.SendAsync(new PipeRequest { Command = "redeem", KeyCode = key.Code });
+        RedeemResultText.Text = response.Message;
+        ApplyResponse(response);
+        if (response.Ok) FooterText.Text = $"Đã cộng {key.RewardLabel} vào ví giải trí.";
     }
 
     private async void RedeemKey_Click(object sender, RoutedEventArgs e)
@@ -289,11 +1215,12 @@ public partial class MainWindow : Window
         ApplyResponse(response);
     }
 
+    // Settings --------------------------------------------------------------------
     private async void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
         if (!TryPositiveInt(FocusMinutesBox.Text, out var focus) ||
             !TryPositiveInt(RewardMinutesBox.Text, out var reward) ||
-            !TryPositiveInt(KeyExpiryBox.Text, out var expiry) ||
+            !TryPositiveInt(KeyExpiryBox.Text, out var expiryHours) ||
             !TryPositiveInt(IdleSecondsBox.Text, out var idle) ||
             !TryPositiveInt(MaxBalanceBox.Text, out var max) ||
             !TryPositiveInt(ActivityEventsBox.Text, out var eventsPerMinute) ||
@@ -304,7 +1231,13 @@ public partial class MainWindow : Window
             !TryPositiveInt(SessionLimitBox.Text, out var sessionLimit) ||
             !TryPositiveInt(BrowserContextTimeoutBox.Text, out var browserTimeout))
         {
-            MessageBox.Show(this, "Các thông số phải là số nguyên dương.", "FocusLock V5");
+            MessageBox.Show(this, "Các thông số phải là số nguyên dương.", "FocusLock");
+            return;
+        }
+
+        if (expiryHours < 24 || expiryHours > int.MaxValue / 60)
+        {
+            MessageBox.Show(this, "Thời hạn key tối thiểu là 24 giờ.", "FocusLock");
             return;
         }
 
@@ -312,7 +1245,7 @@ public partial class MainWindow : Window
         {
             FocusMinutesPerKey = focus,
             RewardMinutesPerKey = reward,
-            KeyExpiryMinutes = expiry,
+            KeyExpiryMinutes = checked(expiryHours * 60),
             IdleThresholdSeconds = idle,
             MaxEntertainmentMinutes = max,
             AntiCheatEnabled = AntiCheatCheck.IsChecked == true,
@@ -322,16 +1255,18 @@ public partial class MainWindow : Window
             VerifyExecutableHash = VerifyHashCheck.IsChecked == true,
             BubbleEnabled = BubbleEnabledCheck.IsChecked == true,
             StartWithWindows = StartWithWindowsCheck.IsChecked == true,
+            MinimizeToTray = MinimizeToTrayCheck.IsChecked == true,
             StreakMinimumFocusMinutes = streakGoal,
             StatisticsRetentionDays = retentionDays,
             SessionHistoryLimit = sessionLimit,
             BrowserRulesEnabled = BrowserRulesEnabledCheck.IsChecked == true,
-            BrowserContextTimeoutSeconds = browserTimeout
+            BrowserContextTimeoutSeconds = browserTimeout,
+            OnboardingCompleted = _snapshot?.State.Settings.OnboardingCompleted ?? true
         };
         var response = await _client.SendAsync(new PipeRequest { Command = "settings", Settings = settings });
         if (response.Ok) StartupRegistration.Apply(settings.StartWithWindows);
         ApplyResponse(response);
-        FooterText.Text = response.Message;
+        FooterText.Text = response.Ok ? "Đã lưu cài đặt." : response.Message;
     }
 
     private void LoadSettingsToUi(UserSettings s)
@@ -339,7 +1274,7 @@ public partial class MainWindow : Window
         if (FocusMinutesBox.IsKeyboardFocusWithin) return;
         FocusMinutesBox.Text = s.FocusMinutesPerKey.ToString();
         RewardMinutesBox.Text = s.RewardMinutesPerKey.ToString();
-        KeyExpiryBox.Text = s.KeyExpiryMinutes.ToString();
+        KeyExpiryBox.Text = Math.Max(24, (int)Math.Ceiling(s.KeyExpiryMinutes / 60.0)).ToString();
         IdleSecondsBox.Text = s.IdleThresholdSeconds.ToString();
         MaxBalanceBox.Text = s.MaxEntertainmentMinutes.ToString();
         ActivityEventsBox.Text = s.MinimumActivityEventsPerMinute.ToString();
@@ -353,11 +1288,180 @@ public partial class MainWindow : Window
         VerifyHashCheck.IsChecked = s.VerifyExecutableHash;
         BubbleEnabledCheck.IsChecked = s.BubbleEnabled;
         StartWithWindowsCheck.IsChecked = s.StartWithWindows;
+        MinimizeToTrayCheck.IsChecked = s.MinimizeToTray;
         BrowserRulesEnabledCheck.IsChecked = s.BrowserRulesEnabled;
     }
 
+    // Onboarding ------------------------------------------------------------------
+    private void ShowOnboarding()
+    {
+        _onboardingStep = 0;
+        if (_snapshot is not null)
+        {
+            OnboardingFocusMinutesBox.Text = _snapshot.State.Settings.FocusMinutesPerKey.ToString();
+            OnboardingRewardMinutesBox.Text = _snapshot.State.Settings.RewardMinutesPerKey.ToString();
+        }
+        OnboardingOverlay.Visibility = Visibility.Visible;
+        UpdateOnboardingUi();
+    }
+
+    private void OnboardingNext_Click(object sender, RoutedEventArgs e)
+    {
+        _ = OnboardingNextAsync();
+    }
+
+    private async Task OnboardingNextAsync()
+    {
+        if (_snapshot is null) return;
+        if (_onboardingStep == 1 && !_snapshot.State.Apps.Any(a => a.Category == AppCategory.Focus))
+        {
+            MessageBox.Show(this, "Hãy chọn ít nhất một ứng dụng học/làm việc. Bạn cũng có thể bấm Bỏ qua và cấu hình sau.", "Thiết lập FocusLock");
+            return;
+        }
+        if (_onboardingStep == 2 && !_snapshot.State.Apps.Any(a => a.Category == AppCategory.Entertainment))
+        {
+            MessageBox.Show(this, "Hãy chọn ít nhất một ứng dụng giải trí. Bạn cũng có thể bấm Bỏ qua và cấu hình sau.", "Thiết lập FocusLock");
+            return;
+        }
+        if (_onboardingStep < 3)
+        {
+            _onboardingStep++;
+            UpdateOnboardingUi();
+            return;
+        }
+
+        if (!TryPositiveInt(OnboardingFocusMinutesBox.Text, out var focus) || !TryPositiveInt(OnboardingRewardMinutesBox.Text, out var reward))
+        {
+            MessageBox.Show(this, "Thời gian phải là số nguyên dương.", "Thiết lập FocusLock");
+            return;
+        }
+
+        var settings = CloneSettings(_snapshot.State.Settings);
+        settings.FocusMinutesPerKey = focus;
+        settings.RewardMinutesPerKey = reward;
+        settings.OnboardingCompleted = true;
+        var response = await _client.SendAsync(new PipeRequest { Command = "settings", Settings = settings });
+        ApplyResponse(response);
+        if (!response.Ok)
+        {
+            MessageBox.Show(this, response.Message, "Không thể hoàn tất thiết lập");
+            return;
+        }
+        OnboardingOverlay.Visibility = Visibility.Collapsed;
+        LoadSettingsToUi(settings);
+        FooterText.Text = "Thiết lập ban đầu hoàn tất. Bạn có thể bắt đầu Focus.";
+    }
+
+    private void OnboardingBack_Click(object sender, RoutedEventArgs e)
+    {
+        if (_onboardingStep <= 0) return;
+        _onboardingStep--;
+        UpdateOnboardingUi();
+    }
+
+    private void OnboardingSkip_Click(object sender, RoutedEventArgs e)
+    {
+        _ = SkipOnboardingAsync();
+    }
+
+    private async Task SkipOnboardingAsync()
+    {
+        if (_snapshot is null)
+        {
+            OnboardingOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var settings = CloneSettings(_snapshot.State.Settings);
+        settings.OnboardingCompleted = true;
+        var response = await _client.SendAsync(new PipeRequest { Command = "settings", Settings = settings });
+        ApplyResponse(response);
+        OnboardingOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void UpdateOnboardingUi()
+    {
+        OnboardingStep0.Visibility = _onboardingStep == 0 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingStep1.Visibility = _onboardingStep == 1 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingStep2.Visibility = _onboardingStep == 2 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingStep3.Visibility = _onboardingStep == 3 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingBackButton.Visibility = _onboardingStep > 0 ? Visibility.Visible : Visibility.Collapsed;
+        OnboardingStepLabel.Text = $"Bước {_onboardingStep + 1} / 4";
+        OnboardingNextButton.Content = _onboardingStep switch
+        {
+            0 => "Bắt đầu →",
+            3 => "Hoàn tất ✓",
+            _ => "Tiếp tục →"
+        };
+        UpdateOnboardingCounts();
+    }
+
+    private void UpdateOnboardingCounts()
+    {
+        if (_snapshot is null) return;
+        var focus = _snapshot.State.Apps.Count(a => a.Category == AppCategory.Focus);
+        var play = _snapshot.State.Apps.Count(a => a.Category == AppCategory.Entertainment);
+        OnboardingFocusCountText.Text = $"{focus} ứng dụng học tập đã chọn";
+        OnboardingEntertainmentCountText.Text = $"{play} ứng dụng giải trí đã chọn";
+    }
+
+    // Helpers ---------------------------------------------------------------------
+    private Brush BrushOf(string key) => (Brush)FindResource(key);
+
+    private static string FriendlyMode(string mode, bool isIdle)
+    {
+        if (isIdle) return "⏸ Đã tạm dừng";
+        if (mode.Contains("giải trí", StringComparison.OrdinalIgnoreCase)) return "🎮 Đang giải trí";
+        if (mode.Contains("focus", StringComparison.OrdinalIgnoreCase) || mode.Contains("học", StringComparison.OrdinalIgnoreCase)) return "● Đang tập trung";
+        return "Sẵn sàng";
+    }
+
+    private static string FriendlyCategory(string category)
+    {
+        if (category.Contains("Entertainment", StringComparison.OrdinalIgnoreCase) || category.Contains("giải trí", StringComparison.OrdinalIgnoreCase)) return "Giải trí";
+        if (category.Contains("Focus", StringComparison.OrdinalIgnoreCase) || category.Contains("học", StringComparison.OrdinalIgnoreCase)) return "Học / Làm việc";
+        return category;
+    }
+
+    private static string NormalizeHost(string input)
+    {
+        var value = input.Trim();
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        if (!value.Contains("://", StringComparison.Ordinal)) value = "https://" + value;
+        if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            var host = uri.Host.Trim('.').ToLowerInvariant();
+            if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) host = host[4..];
+            return host;
+        }
+        return input.Trim().Trim('/').ToLowerInvariant();
+    }
+
+    private static UserSettings CloneSettings(UserSettings s) => new()
+    {
+        FocusMinutesPerKey = s.FocusMinutesPerKey,
+        RewardMinutesPerKey = s.RewardMinutesPerKey,
+        KeyExpiryMinutes = s.KeyExpiryMinutes,
+        IdleThresholdSeconds = s.IdleThresholdSeconds,
+        MaxEntertainmentMinutes = s.MaxEntertainmentMinutes,
+        BubbleEnabled = s.BubbleEnabled,
+        StartWithWindows = s.StartWithWindows,
+        MinimizeToTray = s.MinimizeToTray,
+        AntiCheatEnabled = s.AntiCheatEnabled,
+        MinimumActivityEventsPerMinute = s.MinimumActivityEventsPerMinute,
+        AgentHeartbeatTimeoutSeconds = s.AgentHeartbeatTimeoutSeconds,
+        ClockRollbackToleranceSeconds = s.ClockRollbackToleranceSeconds,
+        VerifyExecutableHash = s.VerifyExecutableHash,
+        StreakMinimumFocusMinutes = s.StreakMinimumFocusMinutes,
+        StatisticsRetentionDays = s.StatisticsRetentionDays,
+        SessionHistoryLimit = s.SessionHistoryLimit,
+        BrowserRulesEnabled = s.BrowserRulesEnabled,
+        BrowserContextTimeoutSeconds = s.BrowserContextTimeoutSeconds,
+        OnboardingCompleted = s.OnboardingCompleted
+    };
+
     private static bool TryPositiveInt(string text, out int value) => int.TryParse(text, out value) && value > 0;
     private static string Format(int seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(seconds >= 3600 ? @"hh\:mm\:ss" : @"mm\:ss");
+
     private static string FormatLong(long seconds)
     {
         var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
@@ -369,6 +1473,14 @@ public partial class MainWindow : Window
         var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
         if (t.TotalHours >= 1) return $"{(int)t.TotalHours}h{t.Minutes:00}";
         return $"{t.Minutes}m";
+    }
+
+    private static string HumanDuration(int seconds)
+    {
+        var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        if (t.TotalHours >= 1) return $"{(int)t.TotalHours} giờ {t.Minutes} phút";
+        if (t.TotalMinutes >= 1) return $"{(int)t.TotalMinutes} phút {t.Seconds} giây";
+        return $"{t.Seconds} giây";
     }
 
     private sealed class AppStatsView

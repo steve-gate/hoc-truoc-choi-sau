@@ -1,4 +1,4 @@
-namespace FocusLock.Shared.Protocol;
+﻿namespace FocusLock.Shared.Protocol;
 
 public sealed class BrowserDecision
 {
@@ -13,4 +13,8 @@ public sealed class BrowserDecision
     public string Message { get; set; } = "";
     public int EntertainmentBalanceSeconds { get; set; }
     public int FocusProgressSeconds { get; set; }
+    public string ProfileName { get; set; } = "";
+    public string AccessMode { get; set; } = "";
+    public int AllowanceRemainingSeconds { get; set; }
+    public int AccountedSeconds { get; set; }
 }

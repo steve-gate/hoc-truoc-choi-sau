@@ -1,18 +1,22 @@
-# FocusLock V5 One-Click bootstrapper
-# Tu tai .NET SDK 10 vao .tools trong CHINH thu muc code, build va cai dat.
-#Requires -RunAsAdministrator
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $root = $PSScriptRoot
+$logFile = Join-Path $root "install.log"
 $toolsRoot = Join-Path $root ".tools"
 $dotnetRoot = Join-Path $toolsRoot "dotnet"
 $dotnetExe = Join-Path $dotnetRoot "dotnet.exe"
-$installer = Join-Path $toolsRoot "dotnet-install.ps1"
+$dotnetInstall = Join-Path $toolsRoot "dotnet-install.ps1"
 $localTemp = Join-Path $toolsRoot "temp"
 $nugetRoot = Join-Path $toolsRoot "nuget"
 $cliHome = Join-Path $toolsRoot "dotnet-home"
 $publishRoot = Join-Path $root "publish"
+
+function Test-Administrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
 
 function Step([string]$text) {
     Write-Host ""
@@ -20,18 +24,37 @@ function Step([string]$text) {
 }
 
 function Ensure-Dir([string]$path) {
-    if (!(Test-Path $path)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
+    if (!(Test-Path -LiteralPath $path)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+    }
 }
 
 function Assert-File([string]$path, [string]$label) {
-    if (!(Test-Path $path)) { throw "$label khong duoc tao: $path" }
+    if (!(Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "$label was not created: $path"
+    }
 }
+
+# V6.4: elevation is handled by CAI_DAT.bat only.
+# If this PS1 is launched directly without admin rights, fail immediately
+# instead of opening another PowerShell process and waiting forever.
+if (-not (Test-Administrator)) {
+    Write-Host "Administrator permission is required." -ForegroundColor Red
+    Write-Host "Please run CAI_DAT.bat instead of setup-oneclick.ps1." -ForegroundColor Yellow
+    exit 5
+}
+
+try {
+    if (Test-Path -LiteralPath $logFile) { Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue }
+    Start-Transcript -Path $logFile -Force | Out-Null
+} catch { }
 
 Push-Location $root
 try {
-    foreach ($dir in @($toolsRoot, $localTemp, $nugetRoot, $cliHome)) { Ensure-Dir $dir }
+    Step "Preparing local build folders"
+    foreach ($dir in @($toolsRoot, $dotnetRoot, $localTemp, $nugetRoot, $cliHome)) { Ensure-Dir $dir }
 
-    # Giu cache/build artifacts tren cung o dia voi source thay vi o C:.
+    # Keep SDK/cache/temp in the FocusLock code folder, not on C:.
     $env:DOTNET_ROOT = $dotnetRoot
     $env:DOTNET_CLI_HOME = $cliHome
     $env:NUGET_PACKAGES = $nugetRoot
@@ -41,88 +64,167 @@ try {
     $env:DOTNET_NOLOGO = "1"
     $env:PATH = "$dotnetRoot;$env:PATH"
 
-    if (!(Test-Path $dotnetExe)) {
-        Step "May chua co SDK cuc bo - dang tai .NET SDK 10 vao .tools\dotnet"
-        Write-Host "    Vi tri: $dotnetRoot" -ForegroundColor DarkGray
-        Write-Host "    Khong cai SDK vao Program Files." -ForegroundColor DarkGray
-
+    $sdkOk = $false
+    if (Test-Path -LiteralPath $dotnetExe) {
         try {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        } catch { }
-
-        try {
-            Invoke-WebRequest -UseBasicParsing -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $installer
-        } catch {
-            Write-Host "    Invoke-WebRequest loi, thu lai bang curl.exe..." -ForegroundColor Yellow
-            $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-            if (!$curl) { throw "Khong tai duoc dotnet-install.ps1 va may khong co curl.exe." }
-            & $curl.Source -L --fail --retry 3 "https://dot.net/v1/dotnet-install.ps1" -o $installer
-            if ($LASTEXITCODE -ne 0) { throw "curl khong tai duoc dotnet-install.ps1." }
-        }
-        Assert-File $installer "dotnet-install.ps1"
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel "10.0" -Architecture "x64" -InstallDir $dotnetRoot -NoPath
-        if ($LASTEXITCODE -ne 0) { throw ".NET SDK download/install that bai (exit $LASTEXITCODE)." }
-        Assert-File $dotnetExe ".NET SDK"
-    } else {
-        Step "Da co .NET SDK cuc bo - bo qua buoc tai"
+            & $dotnetExe --version | Out-Host
+            if ($LASTEXITCODE -eq 0) { $sdkOk = $true }
+        } catch { $sdkOk = $false }
     }
 
-    Step "Kiem tra SDK"
-    & $dotnetExe --info
-    if ($LASTEXITCODE -ne 0) { throw "Khong chay duoc SDK cuc bo." }
+    if (-not $sdkOk) {
+        Step "Downloading .NET 10 SDK into .tools\\dotnet"
+        if (Test-Path -LiteralPath $dotnetRoot) {
+            Remove-Item -LiteralPath $dotnetRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Ensure-Dir $dotnetRoot
+        }
 
-    Step "Build FocusLock"
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "build-release.ps1")
-    if ($LASTEXITCODE -ne 0) { throw "Build FocusLock that bai." }
+        $downloaded = $false
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($curl) {
+            Write-Host "Trying curl.exe..." -ForegroundColor DarkGray
+            & $curl.Source -fL --retry 3 --connect-timeout 20 "https://dot.net/v1/dotnet-install.ps1" -o $dotnetInstall
+            if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $dotnetInstall)) { $downloaded = $true }
+        }
 
-    Assert-File (Join-Path $publishRoot "App\FocusLock.exe") "FocusLock.exe"
+        if (-not $downloaded) {
+            Write-Host "Trying Invoke-WebRequest..." -ForegroundColor DarkGray
+            try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest -UseBasicParsing -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $dotnetInstall
+                if (Test-Path -LiteralPath $dotnetInstall) { $downloaded = $true }
+            } catch { }
+        }
+
+        if (-not $downloaded) {
+            throw "Could not download dotnet-install.ps1. Check Internet/VPN/Firewall and run CAI_DAT.bat again."
+        }
+
+        & $dotnetInstall -Channel "10.0" -Architecture "x64" -InstallDir $dotnetRoot -NoPath
+        Assert-File $dotnetExe ".NET SDK"
+        & $dotnetExe --version | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw ".NET SDK was downloaded but dotnet.exe cannot run." }
+    }
+    else {
+        Step "Local .NET SDK already exists"
+    }
+
+    Step "Checking SDK"
+    & $dotnetExe --info | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "The local .NET SDK cannot run." }
+
+    Step "Building FocusLock safely"
+    # build-release.ps1 is a PowerShell script. Any real failure throws and is caught
+    # by this outer try/catch. Do NOT inspect $LASTEXITCODE here: it may contain a
+    # harmless native command code (for example taskkill = 128 when no process exists).
+    & (Join-Path $root "build-release.ps1") -DotNetExe $dotnetExe
+
+    $deployedAppExe = Join-Path $publishRoot "App\FocusLock.exe"
+    Assert-File $deployedAppExe "FocusLock.exe"
     Assert-File (Join-Path $publishRoot "Service\FocusLock.Service.exe") "FocusLock.Service.exe"
-    Assert-File (Join-Path $publishRoot "NativeHost\FocusLock.NativeHost.exe") "FocusLock.NativeHost.exe"
 
-    Step "Cai Windows Service, startup va Browser Bridge"
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $publishRoot "install-v5.ps1")
-    if ($LASTEXITCODE -ne 0) { throw "Installer V5 that bai." }
+    $nativePointer = Join-Path $publishRoot "nativehost.current"
+    if (!(Test-Path -LiteralPath $nativePointer -PathType Leaf)) {
+        throw "nativehost.current was not created."
+    }
+    $nativeSlot = ([System.IO.File]::ReadAllText($nativePointer)).Trim()
+    if ([string]::IsNullOrWhiteSpace($nativeSlot)) { throw "nativehost.current is empty." }
+    Assert-File (Join-Path $publishRoot "$nativeSlot\FocusLock.NativeHost.exe") "FocusLock.NativeHost.exe"
 
-    Step "HOAN TAT"
-    Write-Host "FocusLock.exe:  $publishRoot\App\FocusLock.exe" -ForegroundColor Green
+    $uiFileVersion = (Get-Item -LiteralPath $deployedAppExe).VersionInfo.FileVersion
+    if ($uiFileVersion -notlike "7.5.2*") {
+        throw "Wrong UI binary after build: $uiFileVersion. Expected 7.5.2.0."
+    }
+    Write-Host "Verified UI file version: $uiFileVersion" -ForegroundColor Green
+
+    Step "Installing/updating Windows Service and Browser Bridge"
+    # Same rule here: install-v5.ps1 throws on a real failure. $LASTEXITCODE may be
+    # stale from sc.exe/icacls/taskkill, so it is not a reliable script result.
+    & (Join-Path $publishRoot "install-v5.ps1")
+
+    Step "Verifying FocusLock UI startup"
+    $appExe = Join-Path $publishRoot "App\FocusLock.exe"
+    $crashLog = Join-Path $publishRoot "Logs\crash.log"
+    $startupLog = Join-Path $publishRoot "Logs\startup.log"
+    $uiProcess = $null
+    $deadline = [DateTime]::UtcNow.AddSeconds(12)
+    do {
+        Start-Sleep -Milliseconds 500
+        $candidates = @(Get-Process -Name "FocusLock" -ErrorAction SilentlyContinue)
+        foreach ($candidate in $candidates) {
+            try {
+                if ([System.IO.Path]::GetFullPath($candidate.Path) -eq [System.IO.Path]::GetFullPath($appExe)) {
+                    $uiProcess = $candidate
+                    break
+                }
+            } catch { }
+        }
+        if ($uiProcess) {
+            try { $uiProcess.Refresh() } catch { $uiProcess = $null }
+            if ($uiProcess -and $uiProcess.HasExited) { $uiProcess = $null }
+        }
+    } while (-not $uiProcess -and [DateTime]::UtcNow -lt $deadline)
+
+    if (-not $uiProcess) {
+        $extra = if (Test-Path -LiteralPath $crashLog) { " Crash log: $crashLog" } elseif (Test-Path -LiteralPath $startupLog) { " Startup log: $startupLog" } else { " No UI log was created." }
+        throw "FocusLock.exe exited immediately after installation.$extra"
+    }
+
+    # Give WPF a little more time. A living process is enough; MainWindowHandle can be 0 briefly during first-run initialization.
+    Start-Sleep -Seconds 3
+    try { $uiProcess.Refresh() } catch { }
+    if ($uiProcess.HasExited) {
+        $extra = if (Test-Path -LiteralPath $crashLog) { " Crash log: $crashLog" } else { "" }
+        throw "FocusLock UI started and then exited.$extra"
+    }
+    $runningVersion = (Get-Item -LiteralPath $appExe).VersionInfo.FileVersion
+    if ($runningVersion -notlike "7.5.2*") {
+        throw "The running FocusLock is not V7.5.2. Detected file version: $runningVersion"
+    }
+    Write-Host "UI health check: OK (PID $($uiProcess.Id), version $runningVersion)" -ForegroundColor Green
+
+    Step "DONE"
+    Write-Host "FocusLock:      $publishRoot\App\FocusLock.exe" -ForegroundColor Green
     Write-Host "Data:           $publishRoot\Data" -ForegroundColor Green
-    Write-Host "Extension:      $publishRoot\BrowserExtension" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Ban khong can chay build-release.ps1 hay install-v5.ps1 bang tay nua." -ForegroundColor Green
+    Write-Host "Browser add-on: $publishRoot\BrowserExtension" -ForegroundColor Green
+    Write-Host "Log:            $logFile" -ForegroundColor Green
 
-    # Giup buoc extension de hon: mo folder va browser extensions page neu tim thay.
     $extensionDir = Join-Path $publishRoot "BrowserExtension"
-    try { Start-Process explorer.exe -ArgumentList "`"$extensionDir`"" | Out-Null } catch { }
+    try { Start-Process explorer.exe -ArgumentList ('"' + $extensionDir + '"') | Out-Null } catch { }
 
-    [array]$chromeCandidates = @(
-        (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
-        $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe" } else { $null }),
-        $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe" } else { $null })
-    ) | Where-Object { $_ -and (Test-Path $_) }
-    if ($chromeCandidates.Count -gt 0) {
-        try { Start-Process $chromeCandidates[0] -ArgumentList "chrome://extensions/" | Out-Null } catch { }
-    } else {
-        $edge = if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe" } else { $null }
-        if ($edge -and (Test-Path $edge)) {
+    $chromeCandidates = @()
+    if ($env:ProgramFiles) { $chromeCandidates += (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe") }
+    if (${env:ProgramFiles(x86)}) { $chromeCandidates += (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe") }
+    if ($env:LOCALAPPDATA) { $chromeCandidates += (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe") }
+    $chrome = $chromeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($chrome) {
+        try { Start-Process $chrome -ArgumentList "chrome://extensions/" | Out-Null } catch { }
+    }
+    else {
+        $edgeCandidates = @()
+        if ($env:ProgramFiles) { $edgeCandidates += (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe") }
+        if (${env:ProgramFiles(x86)}) { $edgeCandidates += (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe") }
+        $edge = $edgeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if ($edge) {
             try { Start-Process $edge -ArgumentList "edge://extensions/" | Out-Null } catch { }
         }
     }
 
     Write-Host ""
-    Write-Host "Neu dung tinh nang Browser V5: trong trang Extensions bat Developer mode -> Load unpacked -> chon thu muc BrowserExtension vua mo." -ForegroundColor Yellow
-    exit 0
+    Write-Host "Browser extension: enable Developer mode, click Load unpacked, then choose publish\\BrowserExtension." -ForegroundColor Yellow
 }
 catch {
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor Red
-    Write-Host "CAI DAT THAT BAI" -ForegroundColor Red
+    Write-Host "INSTALL FAILED" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     Write-Host "============================================================" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Thu muc code: $root" -ForegroundColor DarkGray
-    Write-Host "Neu loi mang khi tai SDK, kiem tra Internet/VPN/Firewall roi chay lai CAI_DAT.bat." -ForegroundColor Yellow
+    Write-Host "Log file: $logFile" -ForegroundColor Yellow
+    try { Stop-Transcript | Out-Null } catch { }
+    Pop-Location
     exit 1
 }
-finally {
-    Pop-Location
-}
+
+try { Stop-Transcript | Out-Null } catch { }
+Pop-Location
+exit 0

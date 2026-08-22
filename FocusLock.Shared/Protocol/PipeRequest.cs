@@ -1,4 +1,4 @@
-using FocusLock.Shared.Models;
+﻿using FocusLock.Shared.Models;
 
 namespace FocusLock.Shared.Protocol;
 
@@ -15,4 +15,19 @@ public sealed class PipeRequest
     public BrowserContextSample? BrowserContext { get; set; }
     public BrowserRule? BrowserRule { get; set; }
     public string? BrowserRuleId { get; set; }
+
+    // V7 profiles / per-app block mode.
+    public BlockProfile? BlockProfile { get; set; }
+    public string? BlockProfileId { get; set; }
+    public EntertainmentBlockAction BlockAction { get; set; }
+    public bool UseCustomBlockAction { get; set; }
+
+    // V7.1 strict blocking controls.
+    public int DurationMinutes { get; set; }
+
+
+    // V7.5 settings-protection controls.
+    public string? TextValue { get; set; }
+    public DateTime? StartUtc { get; set; }
+    public DateTime? UntilUtc { get; set; }
 }

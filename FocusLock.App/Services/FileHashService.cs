@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.IO;
 
 namespace FocusLock.App.Services;
 

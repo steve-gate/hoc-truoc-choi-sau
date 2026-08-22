@@ -1,0 +1,23 @@
+FocusLock V7.5.3
+
+1. Website entertainment debit:
+- Removed browser-entertainment charging from GuardTick.
+- Browser entertainment is now charged directly by the 1-second desktop Activity heartbeat
+  while Chrome/Edge is genuinely the Windows foreground and the active tab matches an
+  Entertainment browser rule.
+- Profile allowance/wallet/block policy is re-evaluated every second.
+- This eliminates the race between Extension timing, GuardTick and foreground verification.
+
+2. Bubble:
+- No longer labels every non-entertainment state as "ĐANG TẬP TRUNG".
+- Shows active Focus only when Focus is really being credited/qualified.
+- Untracked apps, low activity, idle, or waiting-for-web-interaction show "TẠM DỪNG"
+  with the reason, so a stationary countdown is no longer misleading.
+
+3. Keeps:
+- Settings protection
+- System tray
+- 24h minimum key lifetime
+- Profile-first management
+- Side-by-side NativeHost
+- Data untouched
