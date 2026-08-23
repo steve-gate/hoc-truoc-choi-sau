@@ -16,5 +16,7 @@ public sealed class BrowserDecision
     public string ProfileName { get; set; } = "";
     public string AccessMode { get; set; } = "";
     public int AllowanceRemainingSeconds { get; set; }
+    public int DailyBudgetRemainingSeconds { get; set; } = int.MaxValue;
+    public int CooldownRemainingSeconds { get; set; }
     public int AccountedSeconds { get; set; }
 }

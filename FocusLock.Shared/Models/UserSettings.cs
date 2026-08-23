@@ -10,6 +10,12 @@ public sealed class UserSettings
     public int IdleThresholdSeconds { get; set; } = 60;
     public int MaxEntertainmentMinutes { get; set; } = 120;
     public bool BubbleEnabled { get; set; } = true;
+
+    // V7.7.2: visible countdown before entertainment is actually locked.
+    public bool LockCountdownEnabled { get; set; } = true;
+    public int LockCountdownWarningSeconds { get; set; } = 60;
+    public int LockCountdownCriticalSeconds { get; set; } = 10;
+
     public bool StartWithWindows { get; set; } = true;
     public bool MinimizeToTray { get; set; } = true;
 

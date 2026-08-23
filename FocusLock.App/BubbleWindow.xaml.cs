@@ -76,7 +76,29 @@ public partial class BubbleWindow : Window
         TimeText.Text = timeText;
         DetailText.Text = detail;
 
-        if (mode.Contains("GIẢI TRÍ", StringComparison.OrdinalIgnoreCase))
+        // Always reset the main clock and border first so urgency styling
+        // cannot leak into the next Focus/normal state.
+        TimeText.Foreground = Brush("#182033");
+        RootBorder.BorderBrush = Brush("#E4E9F2");
+        RootBorder.BorderThickness = new Thickness(1);
+
+        if (mode.Contains("KHÓA SAU", StringComparison.OrdinalIgnoreCase) ||
+            mode.Contains("HẾT THỜI GIAN", StringComparison.OrdinalIgnoreCase) ||
+            mode.Contains("COOLDOWN", StringComparison.OrdinalIgnoreCase))
+        {
+            SetPill("#FDEEEE", "#C64242");
+            TimeText.Foreground = Brush("#C64242");
+            RootBorder.BorderBrush = Brush("#EAA4A4");
+            RootBorder.BorderThickness = new Thickness(2);
+        }
+        else if (mode.Contains("SẮP KHÓA", StringComparison.OrdinalIgnoreCase))
+        {
+            SetPill("#FFF2E8", "#D16E32");
+            TimeText.Foreground = Brush("#C8692E");
+            RootBorder.BorderBrush = Brush("#F0C49F");
+            RootBorder.BorderThickness = new Thickness(2);
+        }
+        else if (mode.Contains("GIẢI TRÍ", StringComparison.OrdinalIgnoreCase))
             SetPill("#FFF2E8", "#D16E32");
         else if (mode.Contains("TẠM DỪNG", StringComparison.OrdinalIgnoreCase))
             SetPill("#F1F3F6", "#6C7485");
@@ -88,7 +110,10 @@ public partial class BubbleWindow : Window
 
     private void SetPill(string background, string foreground)
     {
-        ModePill.Background = (Brush)new BrushConverter().ConvertFromString(background)!;
-        ModeText.Foreground = (Brush)new BrushConverter().ConvertFromString(foreground)!;
+        ModePill.Background = Brush(background);
+        ModeText.Foreground = Brush(foreground);
     }
+
+    private static Brush Brush(string value)
+        => (Brush)new BrushConverter().ConvertFromString(value)!;
 }

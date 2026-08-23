@@ -25,7 +25,11 @@ public sealed class TrackedApp
         EntertainmentBlockAction.BlockLaunch => "Chặn mở lại",
         _ => "Đóng ứng dụng"
     };
-    public string BlockProfileLabel => string.IsNullOrWhiteSpace(BlockProfileName) ? "Giải trí chung" : BlockProfileName;
+    public string BlockProfileLabel => Category == AppCategory.Focus
+        ? string.IsNullOrWhiteSpace(BlockProfileId)
+            ? "Công thức chung"
+            : string.IsNullOrWhiteSpace(BlockProfileName) ? "Profile Focus" : BlockProfileName
+        : string.IsNullOrWhiteSpace(BlockProfileName) ? "Giải trí chung" : BlockProfileName;
     public string BlockActionPolicyLabel => UseCustomBlockAction ? $"Riêng: {BlockActionLabel}" : "Theo Profile";
 
     public static TrackedApp FromPath(string path, AppCategory category, string sha256)

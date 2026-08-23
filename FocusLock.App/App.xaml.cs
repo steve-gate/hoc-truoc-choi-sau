@@ -45,6 +45,14 @@ public partial class App : Application
 
             base.OnStartup(e);
 
+            // OneDir: the UI itself performs first-run registration of Guard/Native Host.
+            // After the first successful setup, future launches do not require elevation.
+            if (!OneDirBootstrapper.EnsureReady())
+            {
+                Shutdown(20);
+                return;
+            }
+
             // Create the main window manually so XAML/startup failures are caught and logged.
             var window = new MainWindow();
             MainWindow = window;

@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Diagnostics;
 using System.Text.Json;
 using FocusLock.Shared.Models;
@@ -28,6 +28,13 @@ public sealed class FocusAuthorityEngine
     private string _lastFocusAppId = "";
     private string _currentMode = "Đang chờ agent";
     private string _currentApp = "—";
+    private string _lastExternalAppName = "—";
+    private string _lastExternalAppPath = "";
+    private string _currentFocusRewardProfileId = "";
+    private string _currentFocusRewardProfileName = "Công thức chung";
+    private int _currentFocusRewardProgressSeconds;
+    private int _currentFocusRewardTargetSeconds;
+    private int _currentFocusRewardSecondsPerKey;
     private bool _isIdle;
     private bool _inputMonitorHealthy;
     private UsageSession? _openSession;
@@ -39,6 +46,8 @@ public sealed class FocusAuthorityEngine
     private string _currentBrowserProfile = "—";
     private string _currentBrowserAccess = "—";
     private int _currentBrowserAllowanceRemainingSeconds;
+    private int _currentBrowserDailyBudgetRemainingSeconds = int.MaxValue;
+    private int _currentBrowserCooldownRemainingSeconds;
     private long _lastBrowserInteractionCounter;
     private string _lastBrowserInteractionUrl = "";
     private bool _browserMediaQualified;
@@ -60,13 +69,15 @@ public sealed class FocusAuthorityEngine
     private EntertainmentAccess _currentEntertainmentAccess = EntertainmentAccess.Blocked;
     private string _currentEntertainmentProfile = "—";
     private int _currentEntertainmentAllowanceRemainingSeconds;
+    private int _currentEntertainmentDailyBudgetRemainingSeconds = int.MaxValue;
+    private int _currentEntertainmentCooldownRemainingSeconds;
 
     public FocusAuthorityEngine(SecureStateStore store)
     {
         _store = store;
         _state = store.Load();
         NormalizeState();
-        AddAudit("Service", "FocusLock Guard V7.6.7 khởi động · shared challenge comparer.");
+        AddAudit("Service", "FocusLock Guard V7.7.9 khởi động · OneDir + Backup/Restore.");
     }
 
     public PipeResponse Handle(PipeRequest request)
@@ -96,6 +107,8 @@ public sealed class FocusAuthorityEngine
                     case "enablestrict": message = EnableStrictMode(request.DurationMinutes); break;
                     case "requeststrictunlock": message = RequestStrictUnlock(); break;
                     case "disablestrict": message = DisableStrictMode(); break;
+                    case "startfocussession": message = StartFocusSession(request.DurationMinutes, request.BlockProfileId); break;
+                    case "abandonfocussession": message = AbandonFocusSession(); break;
                     case "startlockedsession": message = StartLockedSession(request.DurationMinutes); break;
                     case "startwhitelistsession": message = StartWhitelistSession(request.DurationMinutes); break;
                     case "enablesettingstextprotection": message = EnableSettingsTextProtection(); break;
@@ -113,6 +126,8 @@ public sealed class FocusAuthorityEngine
                     case "togglebrowserrule": message = ToggleBrowserRule(request.BrowserRuleId); break;
                     case "cyclebrowserprofile": message = CycleBrowserProfile(request.BrowserRuleId); break;
                     case "setbrowserprofile": message = SetBrowserProfile(request.BrowserRuleId, request.BlockProfileId); break;
+                    case "createbackup": message = CreateBackup(request.FilePath); break;
+                    case "restorebackup": message = RestoreBackup(request.FilePath); break;
                     case "snapshot": message = "OK"; break;
                     default: throw new InvalidOperationException("Lệnh không được hỗ trợ.");
                 }
@@ -145,6 +160,8 @@ public sealed class FocusAuthorityEngine
         {
             CheckClock(DateTime.UtcNow);
             ResetDailyAllowancesUnsafe(DateTime.Now);
+            ResetDailyEntertainmentUsageUnsafe(DateTime.Now);
+            RefreshCooldownsUnsafe();
             if (!HeartbeatHealthyUnsafe())
             {
                 var verifiedBrowserSession =
@@ -381,6 +398,13 @@ public sealed class FocusAuthorityEngine
         }
 
         _currentApp = actual.Value.ProcessName;
+
+        if (ShouldRememberAsExternalQuickAddApp(actual.Value.ProcessName, actual.Value.Path))
+        {
+            _lastExternalAppName = actual.Value.ProcessName;
+            _lastExternalAppPath = actual.Value.Path;
+        }
+
         TrackedApp? tracked;
         if (IsSupportedBrowserProcess(actual.Value.ProcessName))
         {
@@ -455,6 +479,7 @@ public sealed class FocusAuthorityEngine
         if (tracked.Category == AppCategory.Focus)
         {
             ClearEntertainmentContextUnsafe();
+            SetFocusRewardContextUnsafe(tracked);
             if (_lastFocusAppId != tracked.Id)
             {
                 _lastFocusAppId = tracked.Id;
@@ -528,9 +553,44 @@ public sealed class FocusAuthorityEngine
 
     private void CreditFocusSecond(TrackedApp tracked)
     {
-        _state.FocusProgressSeconds++;
         _state.TotalFocusSeconds++;
         RecordUsageSecondUnsafe(tracked, AppCategory.Focus);
+        SetFocusRewardContextUnsafe(tracked);
+
+        if (IsFocusSessionActiveUnsafe())
+        {
+            var policy = _state.ControlPolicy;
+
+            // If the session is bound to a Profile, only Focus sources assigned
+            // to that Profile are allowed to advance it.
+            if (!string.IsNullOrWhiteSpace(policy.FocusSessionProfileId) &&
+                !string.Equals(
+                    tracked.BlockProfileId,
+                    policy.FocusSessionProfileId,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            policy.FocusSessionQualifiedSeconds = Math.Min(
+                policy.FocusSessionTargetSeconds,
+                Math.Max(0, policy.FocusSessionQualifiedSeconds) + 1);
+
+            if (policy.FocusSessionQualifiedSeconds >= policy.FocusSessionTargetSeconds)
+                CompleteFocusSessionUnsafe();
+
+            return;
+        }
+
+        var profile = FindFocusRewardProfileUnsafe(tracked);
+        if (profile is { Enabled: true, CustomRewardEnabled: true })
+        {
+            CreditProfileRewardSecondUnsafe(profile);
+            SetFocusRewardContextUnsafe(tracked);
+            return;
+        }
+
+        _state.FocusProgressSeconds++;
         var target = Math.Max(60, _state.Settings.FocusMinutesPerKey * 60);
         while (_state.FocusProgressSeconds >= target)
         {
@@ -542,8 +602,77 @@ public sealed class FocusAuthorityEngine
                 _store);
             _state.Keys.Add(key);
             GetDailyStatUnsafe(DateTime.Now.Date).KeysGenerated++;
-            AddAudit("Reward", $"Đã tạo key {key.Code}, thưởng {key.RewardSeconds / 60} phút.");
+            AddAudit("Reward", $"Công thức chung: tạo key {key.Code}, thưởng {key.RewardSeconds / 60} phút.");
         }
+
+        SetGlobalFocusRewardContextUnsafe();
+    }
+
+    private void CreditProfileRewardSecondUnsafe(BlockProfile profile)
+    {
+        profile.RewardProgressSeconds = Math.Max(0, profile.RewardProgressSeconds) + 1;
+        var target = Math.Max(60, profile.RewardFocusMinutes * 60);
+        var rewardSeconds = Math.Max(60, profile.RewardMinutes * 60);
+
+        while (profile.RewardProgressSeconds >= target)
+        {
+            profile.RewardProgressSeconds -= target;
+            var key = RewardKeyFactory.Create(
+                rewardSeconds,
+                Math.Max(UserSettings.MinimumKeyExpiryMinutes, _state.Settings.KeyExpiryMinutes),
+                _state.Keys,
+                _store);
+            _state.Keys.Add(key);
+            GetDailyStatUnsafe(DateTime.Now.Date).KeysGenerated++;
+            AddAudit(
+                "Reward",
+                $"Profile {profile.Name}: đủ {profile.RewardFocusMinutes} phút Focus → tạo key {key.Code}, thưởng {profile.RewardMinutes} phút.");
+        }
+    }
+
+    private BlockProfile? FindFocusRewardProfileUnsafe(TrackedApp tracked)
+    {
+        if (tracked.Category != AppCategory.Focus ||
+            string.IsNullOrWhiteSpace(tracked.BlockProfileId))
+            return null;
+
+        return _state.BlockProfiles.FirstOrDefault(
+            p => p.Id == tracked.BlockProfileId && p.Enabled);
+    }
+
+    private void SetFocusRewardContextUnsafe(TrackedApp tracked)
+    {
+        var profile = FindFocusRewardProfileUnsafe(tracked);
+        if (profile is not null)
+        {
+            _currentFocusRewardProfileId = profile.Id;
+            _currentFocusRewardProfileName = profile.Name;
+
+            if (profile.CustomRewardEnabled)
+            {
+                _currentFocusRewardProgressSeconds = Math.Max(0, profile.RewardProgressSeconds);
+                _currentFocusRewardTargetSeconds = Math.Max(60, profile.RewardFocusMinutes * 60);
+                _currentFocusRewardSecondsPerKey = Math.Max(60, profile.RewardMinutes * 60);
+            }
+            else
+            {
+                _currentFocusRewardProgressSeconds = Math.Max(0, _state.FocusProgressSeconds);
+                _currentFocusRewardTargetSeconds = Math.Max(60, _state.Settings.FocusMinutesPerKey * 60);
+                _currentFocusRewardSecondsPerKey = Math.Max(60, _state.Settings.RewardMinutesPerKey * 60);
+            }
+            return;
+        }
+
+        SetGlobalFocusRewardContextUnsafe();
+    }
+
+    private void SetGlobalFocusRewardContextUnsafe()
+    {
+        _currentFocusRewardProfileId = "";
+        _currentFocusRewardProfileName = "Công thức chung";
+        _currentFocusRewardProgressSeconds = Math.Max(0, _state.FocusProgressSeconds);
+        _currentFocusRewardTargetSeconds = Math.Max(60, _state.Settings.FocusMinutesPerKey * 60);
+        _currentFocusRewardSecondsPerKey = Math.Max(60, _state.Settings.RewardMinutesPerKey * 60);
     }
 
     private (string ProcessName, string Path)? ValidateInteractiveProcess(ActivitySample sample)
@@ -629,10 +758,13 @@ public sealed class FocusAuthorityEngine
         string browserBlockReason = "";
         EntertainmentAccess access = EntertainmentAccess.Free;
 
-        if (IsWhitelistSessionActiveUnsafe())
+        if (IsFocusOnlyEnforcedUnsafe())
         {
             _currentBrowserBlocked = rule?.Category != AppCategory.Focus;
-            if (_currentBrowserBlocked) browserBlockReason = "Focus-only đang bật";
+            if (_currentBrowserBlocked)
+                browserBlockReason = IsFocusSessionActiveUnsafe()
+                    ? "Focus Session đang chạy"
+                    : "Focus-only đang bật";
         }
         else if (rule?.Category == AppCategory.Entertainment)
         {
@@ -640,6 +772,10 @@ public sealed class FocusAuthorityEngine
             var profile = FindProfileUnsafe(policyApp);
             _currentBrowserProfile = profile?.Name ?? "Không có profile";
             _currentBrowserAllowanceRemainingSeconds = profile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(profile);
+            _currentBrowserDailyBudgetRemainingSeconds = profile is null
+                ? int.MaxValue
+                : GetDailyBudgetRemainingSecondsUnsafe(profile);
+            _currentBrowserCooldownRemainingSeconds = profile is null ? 0 : GetCooldownRemainingSecondsUnsafe(profile);
             access = GetEntertainmentAccessUnsafe(policyApp, out browserBlockReason, requireAgentHeartbeat: false);
             _currentBrowserAccess = AccessModeShortLabel(access);
             _currentBrowserBlocked = access == EntertainmentAccess.Blocked;
@@ -649,7 +785,12 @@ public sealed class FocusAuthorityEngine
             _currentBrowserProfile = "—";
             _currentBrowserAccess = rule?.Category == AppCategory.Focus ? "Focus" : "—";
             _currentBrowserAllowanceRemainingSeconds = 0;
+            _currentBrowserDailyBudgetRemainingSeconds = int.MaxValue;
+            _currentBrowserCooldownRemainingSeconds = 0;
             _currentBrowserBlocked = false;
+
+            if (rule?.Category == AppCategory.Focus)
+                SetFocusRewardContextUnsafe(BrowserRuleAsTrackedAppUnsafe(rule, sample));
         }
 
         // Website time is accounted from the browser heartbeat, not Chrome's
@@ -684,6 +825,7 @@ public sealed class FocusAuthorityEngine
             var tracked = BrowserRuleAsTrackedAppUnsafe(rule, sample);
             if (rule.Category == AppCategory.Focus && browserFocusOk && !_state.ClockRollbackDetected)
             {
+                SetFocusRewardContextUnsafe(tracked);
                 for (var i = 0; i < wholeSeconds; i++) CreditFocusSecond(tracked);
                 _currentMode = _browserMediaQualified
                     ? "Đang học trên web (media đang phát)"
@@ -719,6 +861,10 @@ public sealed class FocusAuthorityEngine
                 var liveProfile = FindProfileUnsafe(tracked);
                 _currentBrowserProfile = liveProfile?.Name ?? "Không có profile";
                 _currentBrowserAllowanceRemainingSeconds = liveProfile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(liveProfile);
+                _currentBrowserDailyBudgetRemainingSeconds = liveProfile is null
+                    ? int.MaxValue
+                    : GetDailyBudgetRemainingSecondsUnsafe(liveProfile);
+                _currentBrowserCooldownRemainingSeconds = liveProfile is null ? 0 : GetCooldownRemainingSecondsUnsafe(liveProfile);
                 _currentBrowserAccess = AccessModeShortLabel(_currentBrowserBlocked ? EntertainmentAccess.Blocked : access);
                 _currentMode = _currentBrowserBlocked
                     ? "Giải trí web đang bị khóa"
@@ -731,8 +877,10 @@ public sealed class FocusAuthorityEngine
             }
         }
 
-        var message = _currentBrowserBlocked && IsWhitelistSessionActiveUnsafe()
-            ? "Focus-only đang bật: chỉ website Học/Làm việc được phép."
+        var message = _currentBrowserBlocked && IsFocusOnlyEnforcedUnsafe()
+            ? IsFocusSessionActiveUnsafe()
+                ? "Focus Session đang chạy: chỉ website Học/Làm việc được phép."
+                : "Focus-only đang bật: chỉ website Học/Làm việc được phép."
             : rule is null
                 ? "Website chưa có rule FocusLock."
                 : _currentBrowserBlocked
@@ -767,6 +915,8 @@ public sealed class FocusAuthorityEngine
             ProfileName = _currentBrowserProfile,
             AccessMode = _currentBrowserAccess,
             AllowanceRemainingSeconds = _currentBrowserAllowanceRemainingSeconds,
+            DailyBudgetRemainingSeconds = _currentBrowserDailyBudgetRemainingSeconds,
+            CooldownRemainingSeconds = _currentBrowserCooldownRemainingSeconds,
             AccountedSeconds = wholeSeconds
         };
     }
@@ -841,19 +991,36 @@ public sealed class FocusAuthorityEngine
     {
         var pattern = rule.Pattern.Trim();
         if (pattern.Length == 0) return false;
+
+        var normalizedUrl = BrowserRuleUrlHelper.NormalizeAbsoluteUrl(url);
         return rule.MatchType switch
         {
+            BrowserRuleMatchType.ExactUrl =>
+                normalizedUrl.Length > 0 &&
+                string.Equals(
+                    normalizedUrl,
+                    BrowserRuleUrlHelper.NormalizeAbsoluteUrl(pattern),
+                    StringComparison.OrdinalIgnoreCase),
+
+            BrowserRuleMatchType.UrlPrefix =>
+                normalizedUrl.Length > 0 &&
+                normalizedUrl.StartsWith(
+                    BrowserRuleUrlHelper.NormalizeAbsoluteUrl(pattern),
+                    StringComparison.OrdinalIgnoreCase),
+
             BrowserRuleMatchType.HostSuffix => HostMatches(host, pattern),
-            BrowserRuleMatchType.UrlPrefix => url.StartsWith(pattern, StringComparison.OrdinalIgnoreCase),
             BrowserRuleMatchType.UrlContains => url.Contains(pattern, StringComparison.OrdinalIgnoreCase),
             BrowserRuleMatchType.TitleContains => title.Contains(pattern, StringComparison.OrdinalIgnoreCase),
             _ => false
         };
     }
 
+    // More-specific rules always override broad domain rules.
+    // Exact URL > URL prefix > title/contains > domain.
     private static int BrowserRuleSpecificity(BrowserRule rule) => (rule.MatchType switch
     {
-        BrowserRuleMatchType.UrlPrefix => 4000,
+        BrowserRuleMatchType.ExactUrl => 6000,
+        BrowserRuleMatchType.UrlPrefix => 5000,
         BrowserRuleMatchType.TitleContains => 3000,
         BrowserRuleMatchType.UrlContains => 2500,
         BrowserRuleMatchType.HostSuffix => 1000,
@@ -993,12 +1160,22 @@ public sealed class FocusAuthorityEngine
         if (!string.IsNullOrWhiteSpace(app.Sha256) && _state.Apps.Any(a => a.Category != app.Category && string.Equals(a.Sha256, app.Sha256, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Cùng một executable/hash không thể vừa là Focus vừa là Entertainment.");
         app.Id = string.IsNullOrWhiteSpace(app.Id) ? Guid.NewGuid().ToString("N") : app.Id;
+        var requestedProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == app.BlockProfileId);
         if (app.Category == AppCategory.Entertainment)
         {
-            var requestedProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == app.BlockProfileId);
             var profile = requestedProfile ?? GetDefaultBlockProfileUnsafe();
             app.BlockProfileId = profile.Id;
             app.BlockProfileName = profile.Name;
+        }
+        else if (requestedProfile is not null)
+        {
+            app.BlockProfileId = requestedProfile.Id;
+            app.BlockProfileName = requestedProfile.Name;
+        }
+        else
+        {
+            app.BlockProfileId = "";
+            app.BlockProfileName = "";
         }
         _state.Apps.Add(app);
         AddAudit("Config", $"Thêm {app.Name} vào nhóm {app.CategoryLabel}.");
@@ -1056,14 +1233,31 @@ public sealed class FocusAuthorityEngine
 
     private string SetAppProfile(string? appId, string? profileId)
     {
-        var app = _state.Apps.FirstOrDefault(a => a.Id == appId) ?? throw new InvalidOperationException("Không tìm thấy ứng dụng.");
-        if (app.Category != AppCategory.Entertainment) throw new InvalidOperationException("Profile chỉ áp dụng cho ứng dụng giải trí.");
-        var profile = _state.BlockProfiles.FirstOrDefault(p => p.Id == profileId) ?? throw new InvalidOperationException("Không tìm thấy profile.");
+        var app = _state.Apps.FirstOrDefault(a => a.Id == appId)
+                  ?? throw new InvalidOperationException("Không tìm thấy ứng dụng.");
+
+        if (app.Category == AppCategory.Focus && string.IsNullOrWhiteSpace(profileId))
+        {
+            app.BlockProfileId = "";
+            app.BlockProfileName = "";
+            AddAudit("Reward", $"{app.Name}: bỏ gán nguồn Focus khỏi Profile; dùng công thức chung.");
+            _store.Save(_state);
+            return $"Đã bỏ gán {app.Name}; nguồn Focus này dùng công thức chung.";
+        }
+
+        var profile = _state.BlockProfiles.FirstOrDefault(p => p.Id == profileId)
+                      ?? throw new InvalidOperationException("Không tìm thấy profile.");
         app.BlockProfileId = profile.Id;
         app.BlockProfileName = profile.Name;
-        AddAudit("Block", $"{app.Name}: gán vào profile {profile.Name}.");
+        AddAudit(
+            app.Category == AppCategory.Focus ? "Reward" : "Block",
+            app.Category == AppCategory.Focus
+                ? $"{app.Name}: gán làm nguồn Focus của profile {profile.Name}."
+                : $"{app.Name}: gán vào profile {profile.Name}.");
         _store.Save(_state);
-        return $"Đã gán {app.Name} vào {profile.Name}.";
+        return app.Category == AppCategory.Focus
+            ? $"Đã gán {app.Name} làm nguồn Focus của {profile.Name}."
+            : $"Đã gán {app.Name} vào {profile.Name}.";
     }
 
     private string SetAppBlockAction(string? appId, bool useCustom, EntertainmentBlockAction action)
@@ -1151,13 +1345,29 @@ public sealed class FocusAuthorityEngine
                        ?? _state.BlockProfiles.First(p => p.Id != profile.Id);
         foreach (var app in _state.Apps.Where(a => a.BlockProfileId == profile.Id))
         {
-            app.BlockProfileId = fallback.Id;
-            app.BlockProfileName = fallback.Name;
+            if (app.Category == AppCategory.Entertainment)
+            {
+                app.BlockProfileId = fallback.Id;
+                app.BlockProfileName = fallback.Name;
+            }
+            else
+            {
+                app.BlockProfileId = "";
+                app.BlockProfileName = "";
+            }
         }
-        foreach (var rule in _state.BrowserRules.Where(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == profile.Id))
+        foreach (var rule in _state.BrowserRules.Where(r => r.BlockProfileId == profile.Id))
         {
-            rule.BlockProfileId = fallback.Id;
-            rule.BlockProfileName = fallback.Name;
+            if (rule.Category == AppCategory.Entertainment)
+            {
+                rule.BlockProfileId = fallback.Id;
+                rule.BlockProfileName = fallback.Name;
+            }
+            else
+            {
+                rule.BlockProfileId = "";
+                rule.BlockProfileName = "";
+            }
         }
         _state.BlockProfiles.Remove(profile);
         AddAudit("Block", $"Xóa profile {profile.Name}; ứng dụng được chuyển sang {fallback.Name}.");
@@ -1181,11 +1391,84 @@ public sealed class FocusAuthorityEngine
     {
         "addapp", "removeapp", "toggleapp", "cycleapplock", "cycleappprofile", "setappprofile", "setappblockaction",
         "addblockprofile", "toggleblockprofile", "removeblockprofile", "updateblockprofile",
-        "settings", "addbrowserrule", "removebrowserrule", "togglebrowserrule", "cyclebrowserprofile", "setbrowserprofile"
+        "settings", "addbrowserrule", "removebrowserrule", "togglebrowserrule", "cyclebrowserprofile", "setbrowserprofile",
+        "restorebackup"
     };
 
     private static bool IsConfigurationMutationCommand(string command) =>
         ConfigurationMutationCommands.Contains(command);
+
+    private string CreateBackup(string? filePath)
+    {
+        var saved = _store.CreatePortableBackup(filePath ?? "", _state);
+        AddAudit("Backup", $"Đã tạo bản sao lưu: {Path.GetFileName(saved)}");
+        _store.Save(_state);
+        return $"Đã sao lưu toàn bộ dữ liệu FocusLock vào {saved}";
+    }
+
+    private string RestoreBackup(string? filePath)
+    {
+        // Restore is intentionally treated as a configuration mutation and is already
+        // blocked by Settings Protection, Strict Mode and active non-cancellable sessions.
+        // An active cooldown is also protected so Restore cannot become a shortcut around it.
+        var activeCooldown = _state.BlockProfiles.FirstOrDefault(x => x.CooldownActive);
+        if (activeCooldown is not null)
+            throw new InvalidOperationException($"Profile '{activeCooldown.Name}' đang Cooldown. Hãy chờ cooldown kết thúc rồi mới Restore.");
+
+        EndUsageSessionUnsafe("Restore backup");
+        ResumeStaleSuspendedUnsafe(new HashSet<int>());
+
+        var restored = _store.RestorePortableBackup(filePath ?? "", _state, 17, out var safetyBackup);
+        _state = restored;
+        NormalizeState();
+
+        // Clear transient runtime observations. They are rebuilt from fresh agent/browser
+        // samples and must never leak from the pre-Restore state into the restored state.
+        _activityEvents.Clear();
+        _browserActivityEvents.Clear();
+        _hashCache.Clear();
+        _lastFocusAppId = "";
+        _currentFocusRewardProfileId = "";
+        _currentFocusRewardProfileName = "Công thức chung";
+        _currentFocusRewardProgressSeconds = 0;
+        _currentFocusRewardTargetSeconds = 0;
+        _currentFocusRewardSecondsPerKey = 0;
+        _currentMode = "Đã Restore · đang đồng bộ";
+        _currentApp = "—";
+        _lastExternalAppName = "—";
+        _lastExternalAppPath = "";
+        _browserContext = null;
+        _currentBrowserCategory = "Neutral";
+        _currentBrowserRule = "—";
+        _currentBrowserBlocked = false;
+        _currentBrowserProfile = "—";
+        _currentBrowserAccess = "—";
+        _currentBrowserAllowanceRemainingSeconds = 0;
+        _currentBrowserDailyBudgetRemainingSeconds = int.MaxValue;
+        _currentBrowserCooldownRemainingSeconds = 0;
+        _lastBrowserInteractionCounter = 0;
+        _lastBrowserInteractionUrl = "";
+        _browserMediaQualified = false;
+        _browserEngagedUntilUtc = DateTime.MinValue;
+        _lastBrowserAccountingTick = 0;
+        _lastBrowserAccountingRuleId = "";
+        _browserAccountingCarrySeconds = 0;
+        _lastBrowserEntertainmentGuardTick = 0;
+        _browserEntertainmentGuardCarrySeconds = 0;
+        _lastBrowserEntertainmentGuardRuleId = "";
+        _lastVerifiedForegroundProcess = "";
+        _lastVerifiedForegroundTick = 0;
+        _entertainmentSessionActive = false;
+        _currentEntertainmentAccess = EntertainmentAccess.Blocked;
+        _currentEntertainmentProfile = "—";
+        _currentEntertainmentAllowanceRemainingSeconds = 0;
+        _currentEntertainmentDailyBudgetRemainingSeconds = int.MaxValue;
+        _currentEntertainmentCooldownRemainingSeconds = 0;
+
+        AddAudit("Backup", $"Đã Restore từ {Path.GetFileName(filePath)}. Safety backup: {Path.GetFileName(safetyBackup)}");
+        _store.Save(_state);
+        return $"Restore thành công. FocusLock đã tạo safety backup trước khi khôi phục: {safetyBackup}";
+    }
 
     private void EnsureConfigurationChangeAllowedUnsafe()
     {
@@ -1197,6 +1480,8 @@ public sealed class FocusAuthorityEngine
             var until = policy.SettingsProtectionUntilUtc!.Value.ToLocalTime();
             throw new InvalidOperationException($"Bảo vệ cài đặt theo thời gian đang bật. Không thể sửa cấu hình tới {until:dd/MM/yyyy HH:mm:ss}.");
         }
+        if (IsFocusSessionActiveUnsafe())
+            throw new InvalidOperationException("Focus Session đang chạy. Không thể thay đổi app, website, profile hay cài đặt cho tới khi hoàn thành hoặc bỏ phiên.");
         if (IsLockedSessionActiveUnsafe())
             throw new InvalidOperationException("Locked Session đang chạy. Không thể thay đổi cấu hình cho tới khi phiên kết thúc.");
         if (IsWhitelistSessionActiveUnsafe())
@@ -1321,6 +1606,131 @@ public sealed class FocusAuthorityEngine
         return "Strict Mode đã tắt.";
     }
 
+    private string StartFocusSession(int durationMinutes, string? profileId)
+    {
+        durationMinutes = ValidateSessionMinutes(durationMinutes);
+
+        if (IsFocusSessionActiveUnsafe())
+            throw new InvalidOperationException("Đã có Focus Session đang chạy. Hãy hoàn thành hoặc bỏ phiên hiện tại trước.");
+        if (IsLockedSessionActiveUnsafe())
+            throw new InvalidOperationException("Locked Session đang chạy. Hãy chờ phiên khóa kết thúc trước khi bắt đầu Focus Session.");
+        if (IsWhitelistSessionActiveUnsafe())
+            throw new InvalidOperationException("Focus-only thủ công đang chạy. Hãy chờ phiên đó kết thúc trước khi bắt đầu Focus Session.");
+        if (_state.ClockRollbackDetected)
+            throw new InvalidOperationException("Không thể bắt đầu Focus Session khi Guard đang cảnh báo thay đổi giờ hệ thống.");
+
+        BlockProfile? rewardProfile = null;
+        if (!string.IsNullOrWhiteSpace(profileId))
+        {
+            rewardProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == profileId && p.Enabled)
+                            ?? throw new InvalidOperationException("Không tìm thấy Profile thưởng đang bật.");
+
+            var hasFocusSource =
+                _state.Apps.Any(a =>
+                    a.Enabled &&
+                    a.Category == AppCategory.Focus &&
+                    a.BlockProfileId == rewardProfile.Id) ||
+                _state.BrowserRules.Any(r =>
+                    r.Enabled &&
+                    r.Category == AppCategory.Focus &&
+                    r.BlockProfileId == rewardProfile.Id);
+
+            if (!hasFocusSource)
+                throw new InvalidOperationException(
+                    $"Profile {rewardProfile.Name} chưa có nguồn Focus. Hãy gán ít nhất một app hoặc website Học/Làm việc trong Chỉnh chính sách.");
+        }
+
+        var policy = _state.ControlPolicy;
+        policy.FocusSessionStartedUtc = DateTime.UtcNow;
+        policy.FocusSessionTargetSeconds = checked(durationMinutes * 60);
+        policy.FocusSessionQualifiedSeconds = 0;
+        policy.FocusSessionProfileId = rewardProfile?.Id ?? "";
+        policy.FocusSessionProfileName = rewardProfile?.Name ?? "";
+        policy.FocusSessionRewardSeconds =
+            FocusSessionRewardCalculator.CalculateRewardSeconds(
+                durationMinutes,
+                _state.Settings,
+                rewardProfile);
+
+        var formulaLabel = rewardProfile is null
+            ? $"công thức chung {_state.Settings.FocusMinutesPerKey}→+{_state.Settings.RewardMinutesPerKey} phút"
+            : rewardProfile.CustomRewardEnabled
+                ? $"Profile {rewardProfile.Name}: {rewardProfile.RewardFocusMinutes}→+{rewardProfile.RewardMinutes} phút"
+                : $"Profile {rewardProfile.Name}: dùng công thức chung";
+
+        AddAudit(
+            "FocusSession",
+            $"Bắt đầu Focus Session {durationMinutes} phút Focus thực · {formulaLabel}; hoàn thành nhận key +{FormatAuditDuration(policy.FocusSessionRewardSeconds)}.");
+        _store.Save(_state);
+
+        return rewardProfile is null
+            ? $"Focus Session {durationMinutes} phút đã bắt đầu. Mọi nguồn Focus hợp lệ đều được tính; hoàn thành nhận key +{FormatAuditDuration(policy.FocusSessionRewardSeconds)}."
+            : $"Focus Session {durationMinutes} phút cho Profile {rewardProfile.Name} đã bắt đầu. Chỉ nguồn Focus thuộc Profile này mới làm phiên tiến lên; hoàn thành nhận key +{FormatAuditDuration(policy.FocusSessionRewardSeconds)}.";
+    }
+
+    private string AbandonFocusSession()
+    {
+        if (!IsFocusSessionActiveUnsafe())
+            return "Không có Focus Session đang chạy.";
+
+        var policy = _state.ControlPolicy;
+        var qualified = Math.Max(0, policy.FocusSessionQualifiedSeconds);
+        var target = Math.Max(1, policy.FocusSessionTargetSeconds);
+
+        AddAudit(
+            "FocusSession",
+            $"Bỏ Focus Session ở {FormatAuditDuration(qualified)} / {FormatAuditDuration(target)}; không tạo phần thưởng.");
+
+        ClearFocusSessionUnsafe();
+        _store.Save(_state);
+        return "Đã bỏ Focus Session. Không có phần thưởng cho phiên chưa hoàn thành.";
+    }
+
+    private void CompleteFocusSessionUnsafe()
+    {
+        var policy = _state.ControlPolicy;
+        if (!policy.FocusSessionActive &&
+            !(policy.FocusSessionTargetSeconds > 0 &&
+              policy.FocusSessionQualifiedSeconds >= policy.FocusSessionTargetSeconds))
+            return;
+
+        var target = Math.Max(60, policy.FocusSessionTargetSeconds);
+        var rewardSeconds = Math.Clamp(policy.FocusSessionRewardSeconds, 60, 24 * 60 * 60);
+        var key = RewardKeyFactory.Create(
+            rewardSeconds,
+            Math.Max(UserSettings.MinimumKeyExpiryMinutes, _state.Settings.KeyExpiryMinutes),
+            _state.Keys,
+            _store);
+
+        _state.Keys.Add(key);
+        GetDailyStatUnsafe(DateTime.Now.Date).KeysGenerated++;
+        AddAudit(
+            "FocusSession",
+            $"Hoàn thành Focus Session {FormatAuditDuration(target)}; tạo key {key.Code}, thưởng +{FormatAuditDuration(rewardSeconds)}.");
+
+        ClearFocusSessionUnsafe();
+        _store.Save(_state);
+    }
+
+    private void ClearFocusSessionUnsafe()
+    {
+        var policy = _state.ControlPolicy;
+        policy.FocusSessionStartedUtc = null;
+        policy.FocusSessionTargetSeconds = 0;
+        policy.FocusSessionQualifiedSeconds = 0;
+        policy.FocusSessionRewardSeconds = 0;
+        policy.FocusSessionProfileId = "";
+        policy.FocusSessionProfileName = "";
+    }
+
+    private static string FormatAuditDuration(int seconds)
+    {
+        var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        return t.TotalHours >= 1
+            ? $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}"
+            : $"{t.Minutes:00}:{t.Seconds:00}";
+    }
+
     private string StartLockedSession(int durationMinutes)
     {
         durationMinutes = ValidateSessionMinutes(durationMinutes);
@@ -1350,11 +1760,17 @@ public sealed class FocusAuthorityEngine
         return minutes;
     }
 
+    private bool IsFocusSessionActiveUnsafe() =>
+        _state.ControlPolicy.FocusSessionActive;
+
     private bool IsLockedSessionActiveUnsafe() =>
         _state.ControlPolicy.LockedSessionUntilUtc is DateTime until && until > DateTime.UtcNow;
 
     private bool IsWhitelistSessionActiveUnsafe() =>
         _state.ControlPolicy.WhitelistSessionUntilUtc is DateTime until && until > DateTime.UtcNow;
+
+    private bool IsFocusOnlyEnforcedUnsafe() =>
+        IsFocusSessionActiveUnsafe() || IsWhitelistSessionActiveUnsafe();
 
     private string UpdateBlockProfile(BlockProfile? requested)
     {
@@ -1365,6 +1781,16 @@ public sealed class FocusAuthorityEngine
 
         if (requested.DailyAllowanceMinutes < 0 || requested.DailyAllowanceMinutes > 1440)
             throw new InvalidOperationException("Allowance phải từ 0 đến 1440 phút/ngày.");
+        if (requested.DailyBudgetMinutes < 0 || requested.DailyBudgetMinutes > 1440)
+            throw new InvalidOperationException("Ngân sách giải trí phải từ 0 đến 1440 phút/ngày; 0 nghĩa là không giới hạn.");
+        if (requested.CooldownEnabled && (requested.CooldownAfterMinutes < 1 || requested.CooldownAfterMinutes > 1440))
+            throw new InvalidOperationException("Mốc giải trí trước cooldown phải từ 1 đến 1440 phút.");
+        if (requested.CooldownEnabled && (requested.CooldownMinutes < 1 || requested.CooldownMinutes > 1440))
+            throw new InvalidOperationException("Thời gian cooldown phải từ 1 đến 1440 phút.");
+        if (requested.RewardFocusMinutes < 1 || requested.RewardFocusMinutes > 1440)
+            throw new InvalidOperationException("Mốc Focus của công thức thưởng phải từ 1 đến 1440 phút.");
+        if (requested.RewardMinutes < 1 || requested.RewardMinutes > 1440)
+            throw new InvalidOperationException("Số phút thưởng phải từ 1 đến 1440 phút.");
         if (!Enum.IsDefined(requested.DefaultAccessPolicy) || !Enum.IsDefined(requested.ScheduledAccessPolicy))
             throw new InvalidOperationException("Chính sách truy cập của Block Profile không hợp lệ.");
         if (!Enum.IsDefined(requested.DefaultBlockAction))
@@ -1389,13 +1815,76 @@ public sealed class FocusAuthorityEngine
             ? requested.WeeklyScheduleMask
             : new string('0', 336);
         profile.DailyAllowanceMinutes = requested.DailyAllowanceMinutes;
+        profile.DailyBudgetMinutes = requested.DailyBudgetMinutes;
+
+        var oldCooldownEnabled = profile.CooldownEnabled;
+        var oldCooldownTarget = Math.Max(60, profile.CooldownAfterMinutes * 60);
+        var oldCooldownProgress = Math.Clamp(profile.CooldownProgressSeconds, 0, Math.Max(0, oldCooldownTarget - 1));
+        var oldCooldownRemaining = GetCooldownRemainingSecondsUnsafe(profile);
+
+        profile.CooldownEnabled = requested.CooldownEnabled;
+        profile.CooldownAfterMinutes = Math.Clamp(requested.CooldownAfterMinutes <= 0 ? 30 : requested.CooldownAfterMinutes, 1, 1440);
+        profile.CooldownMinutes = Math.Clamp(requested.CooldownMinutes <= 0 ? 10 : requested.CooldownMinutes, 1, 1440);
+
+        if (!profile.CooldownEnabled)
+        {
+            profile.CooldownProgressSeconds = 0;
+            if (oldCooldownRemaining <= 0) profile.CooldownUntilUtc = null;
+        }
+        else if (!oldCooldownEnabled)
+        {
+            profile.CooldownProgressSeconds = 0;
+            profile.CooldownUntilUtc = null;
+        }
+        else if (oldCooldownRemaining > 0)
+        {
+            // An active break cannot be shortened or bypassed by editing the Profile.
+            profile.CooldownProgressSeconds = 0;
+        }
+        else
+        {
+            var newCooldownTarget = Math.Max(60, profile.CooldownAfterMinutes * 60);
+            var ratio = oldCooldownTarget <= 0 ? 0d : oldCooldownProgress / (double)oldCooldownTarget;
+            profile.CooldownProgressSeconds = Math.Clamp(
+                (int)Math.Round(ratio * newCooldownTarget, MidpointRounding.AwayFromZero),
+                0,
+                Math.Max(0, newCooldownTarget - 1));
+            profile.CooldownUntilUtc = null;
+        }
+
+        var oldRewardEnabled = profile.CustomRewardEnabled;
+        var oldRewardTarget = Math.Max(60, profile.RewardFocusMinutes * 60);
+        var oldRewardProgress = Math.Clamp(profile.RewardProgressSeconds, 0, Math.Max(0, oldRewardTarget - 1));
+
+        profile.CustomRewardEnabled = requested.CustomRewardEnabled;
+        profile.RewardFocusMinutes = Math.Clamp(requested.RewardFocusMinutes, 1, 1440);
+        profile.RewardMinutes = Math.Clamp(requested.RewardMinutes, 1, 1440);
+
+        if (!profile.CustomRewardEnabled)
+        {
+            profile.RewardProgressSeconds = 0;
+        }
+        else if (!oldRewardEnabled)
+        {
+            profile.RewardProgressSeconds = 0;
+        }
+        else
+        {
+            var newTarget = Math.Max(60, profile.RewardFocusMinutes * 60);
+            var ratio = oldRewardTarget <= 0 ? 0d : oldRewardProgress / (double)oldRewardTarget;
+            profile.RewardProgressSeconds = Math.Clamp(
+                (int)Math.Round(ratio * newTarget, MidpointRounding.AwayFromZero),
+                0,
+                Math.Max(0, newTarget - 1));
+        }
 
         ResetAllowanceIfNewDayUnsafe(profile, DateTime.Now);
+        ResetEntertainmentUsageIfNewDayUnsafe(profile, DateTime.Now);
         profile.AllowanceUsedSeconds = Math.Min(profile.AllowanceUsedSeconds, profile.DailyAllowanceMinutes * 60);
 
         foreach (var app in _state.Apps.Where(a => a.BlockProfileId == profile.Id)) app.BlockProfileName = profile.Name;
         foreach (var rule in _state.BrowserRules.Where(r => r.BlockProfileId == profile.Id)) rule.BlockProfileName = profile.Name;
-        AddAudit("Block", $"Cập nhật {profile.Name}: ngoài lịch {profile.DefaultAccessLabel}; trong lịch {profile.ScheduledAccessLabel}; {profile.ScheduleLabel}; allowance {profile.DailyAllowanceMinutes} phút/ngày.");
+        AddAudit("Block", $"Cập nhật {profile.Name}: ngoài lịch {profile.DefaultAccessLabel}; trong lịch {profile.ScheduledAccessLabel}; {profile.ScheduleLabel}; allowance {profile.DailyAllowanceMinutes} phút/ngày; ngân sách {(profile.DailyBudgetMinutes <= 0 ? "không giới hạn" : profile.DailyBudgetMinutes + " phút/ngày")}; cooldown {(profile.CooldownEnabled ? profile.CooldownAfterMinutes + " phút chơi → nghỉ " + profile.CooldownMinutes + " phút" : "tắt")}; thưởng {(profile.CustomRewardEnabled ? profile.RewardRuleLabel : "công thức chung")}.");
         _store.Save(_state);
         return $"Đã lưu chính sách cho {profile.Name}.";
     }
@@ -1434,6 +1923,11 @@ public sealed class FocusAuthorityEngine
             reason = "mất heartbeat";
             return EntertainmentAccess.Blocked;
         }
+        if (IsFocusSessionActiveUnsafe())
+        {
+            reason = "Focus Session";
+            return EntertainmentAccess.Blocked;
+        }
         if (IsLockedSessionActiveUnsafe())
         {
             reason = "Locked Session";
@@ -1459,6 +1953,13 @@ public sealed class FocusAuthorityEngine
             return EntertainmentAccess.Free;
         }
 
+        var cooldownRemaining = GetCooldownRemainingSecondsUnsafe(profile);
+        if (cooldownRemaining > 0)
+        {
+            reason = $"cooldown của profile {profile.Name} còn {FormatAuditDuration(cooldownRemaining)}";
+            return EntertainmentAccess.Blocked;
+        }
+
         var scheduled = profile.ScheduleEnabled && IsScheduleActiveUnsafe(profile, DateTime.Now);
         var policy = scheduled ? profile.ScheduledAccessPolicy : profile.DefaultAccessPolicy;
         return EvaluateProfileAccessPolicyUnsafe(profile, policy, scheduled, out reason);
@@ -1467,14 +1968,22 @@ public sealed class FocusAuthorityEngine
     private EntertainmentAccess EvaluateProfileAccessPolicyUnsafe(BlockProfile profile, ProfileAccessPolicy policy, bool scheduled, out string reason)
     {
         reason = "";
+        if (policy == ProfileAccessPolicy.Block)
+        {
+            reason = scheduled ? $"lịch {profile.Name} đang khóa" : $"profile {profile.Name} khóa tuyệt đối";
+            return EntertainmentAccess.Blocked;
+        }
+
+        if (profile.DailyBudgetMinutes > 0 && GetDailyBudgetRemainingSecondsUnsafe(profile) <= 0)
+        {
+            reason = $"đã dùng hết ngân sách {profile.DailyBudgetMinutes} phút hôm nay của profile {profile.Name}";
+            return EntertainmentAccess.Blocked;
+        }
+
         switch (policy)
         {
             case ProfileAccessPolicy.Free:
                 return EntertainmentAccess.Free;
-
-            case ProfileAccessPolicy.Block:
-                reason = scheduled ? $"lịch {profile.Name} đang khóa" : $"profile {profile.Name} khóa tuyệt đối";
-                return EntertainmentAccess.Blocked;
 
             case ProfileAccessPolicy.AllowanceThenEarned:
                 if (GetAllowanceRemainingSecondsUnsafe(profile) > 0) return EntertainmentAccess.Allowance;
@@ -1515,10 +2024,21 @@ public sealed class FocusAuthorityEngine
 
     private void ConsumeEntertainmentSecondUnsafe(TrackedApp app, EntertainmentAccess access)
     {
+        var profile = FindProfileUnsafe(app);
+
+        // Count actual entertainment use for this profile regardless of whether
+        // the current second is Free, Allowance, or Wallet.
+        if (profile is { Enabled: true })
+        {
+            ResetEntertainmentUsageIfNewDayUnsafe(profile, DateTime.Now);
+            profile.EntertainmentUsedSecondsToday =
+                Math.Min(int.MaxValue - 1, Math.Max(0, profile.EntertainmentUsedSecondsToday) + 1);
+            AdvanceCooldownSecondUnsafe(profile);
+        }
+
         switch (access)
         {
             case EntertainmentAccess.Allowance:
-                var profile = FindProfileUnsafe(app);
                 if (profile is not null && GetAllowanceRemainingSecondsUnsafe(profile) > 0)
                     profile.AllowanceUsedSeconds++;
                 break;
@@ -1535,6 +2055,10 @@ public sealed class FocusAuthorityEngine
         var profile = FindProfileUnsafe(app);
         _currentEntertainmentProfile = profile?.Name ?? "Không có profile";
         _currentEntertainmentAllowanceRemainingSeconds = profile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(profile);
+        _currentEntertainmentDailyBudgetRemainingSeconds = profile is null
+            ? int.MaxValue
+            : GetDailyBudgetRemainingSecondsUnsafe(profile);
+        _currentEntertainmentCooldownRemainingSeconds = profile is null ? 0 : GetCooldownRemainingSecondsUnsafe(profile);
     }
 
     private void ClearEntertainmentContextUnsafe()
@@ -1543,18 +2067,32 @@ public sealed class FocusAuthorityEngine
         _currentEntertainmentAccess = EntertainmentAccess.Blocked;
         _currentEntertainmentProfile = "—";
         _currentEntertainmentAllowanceRemainingSeconds = 0;
+        _currentEntertainmentDailyBudgetRemainingSeconds = int.MaxValue;
+        _currentEntertainmentCooldownRemainingSeconds = 0;
     }
 
     private int CurrentEntertainmentUsableRemainingSecondsUnsafe()
     {
         if (!_entertainmentSessionActive) return 0;
-        return _currentEntertainmentAccess switch
+
+        var sourceRemaining = _currentEntertainmentAccess switch
         {
             EntertainmentAccess.Free => int.MaxValue,
-            EntertainmentAccess.Allowance => Math.Max(0, _currentEntertainmentAllowanceRemainingSeconds) + Math.Max(0, _state.EntertainmentBalanceSeconds),
+            EntertainmentAccess.Allowance =>
+                SafeRemainingSum(_currentEntertainmentAllowanceRemainingSeconds, _state.EntertainmentBalanceSeconds),
             EntertainmentAccess.Wallet => Math.Max(0, _state.EntertainmentBalanceSeconds),
             _ => 0
         };
+
+        return _currentEntertainmentDailyBudgetRemainingSeconds == int.MaxValue
+            ? sourceRemaining
+            : Math.Min(sourceRemaining, Math.Max(0, _currentEntertainmentDailyBudgetRemainingSeconds));
+    }
+
+    private static int SafeRemainingSum(int left, int right)
+    {
+        var sum = (long)Math.Max(0, left) + Math.Max(0, right);
+        return sum >= int.MaxValue ? int.MaxValue : (int)sum;
     }
 
     private BlockProfile? FindProfileUnsafe(TrackedApp app) =>
@@ -1569,9 +2107,69 @@ public sealed class FocusAuthorityEngine
         return Math.Max(0, profile.DailyAllowanceMinutes * 60 - profile.AllowanceUsedSeconds);
     }
 
+    private int GetDailyBudgetRemainingSecondsUnsafe(BlockProfile profile)
+    {
+        ResetEntertainmentUsageIfNewDayUnsafe(profile, DateTime.Now);
+        if (profile.DailyBudgetMinutes <= 0) return int.MaxValue;
+        return Math.Max(0, profile.DailyBudgetMinutes * 60 - Math.Max(0, profile.EntertainmentUsedSecondsToday));
+    }
+
+    private int GetCooldownRemainingSecondsUnsafe(BlockProfile profile)
+    {
+        if (profile.CooldownUntilUtc is DateTime until)
+        {
+            var seconds = (int)Math.Ceiling((until - DateTime.UtcNow).TotalSeconds);
+            if (seconds > 0) return seconds;
+
+            profile.CooldownUntilUtc = null;
+            profile.CooldownProgressSeconds = 0;
+            AddAudit("Cooldown", $"Cooldown của profile {profile.Name} đã kết thúc; có thể giải trí lại theo policy hiện tại.");
+        }
+
+        if (!profile.CooldownEnabled)
+            profile.CooldownProgressSeconds = 0;
+        return 0;
+    }
+
+    private void AdvanceCooldownSecondUnsafe(BlockProfile profile)
+    {
+        if (!profile.CooldownEnabled) return;
+        if (GetCooldownRemainingSecondsUnsafe(profile) > 0) return;
+
+        var target = Math.Max(60, profile.CooldownAfterMinutes * 60);
+        profile.CooldownProgressSeconds = Math.Min(target, Math.Max(0, profile.CooldownProgressSeconds) + 1);
+        if (profile.CooldownProgressSeconds < target) return;
+
+        profile.CooldownProgressSeconds = 0;
+        profile.CooldownUntilUtc = DateTime.UtcNow.AddMinutes(Math.Max(1, profile.CooldownMinutes));
+        AddAudit(
+            "Cooldown",
+            $"Profile {profile.Name}: đã dùng {profile.CooldownAfterMinutes} phút giải trí trong chu kỳ → bắt đầu nghỉ {profile.CooldownMinutes} phút.");
+    }
+
+    private void RefreshCooldownsUnsafe()
+    {
+        foreach (var profile in _state.BlockProfiles)
+            _ = GetCooldownRemainingSecondsUnsafe(profile);
+    }
+
     private void ResetDailyAllowancesUnsafe(DateTime localNow)
     {
         foreach (var profile in _state.BlockProfiles) ResetAllowanceIfNewDayUnsafe(profile, localNow);
+    }
+
+    private void ResetDailyEntertainmentUsageUnsafe(DateTime localNow)
+    {
+        foreach (var profile in _state.BlockProfiles)
+            ResetEntertainmentUsageIfNewDayUnsafe(profile, localNow);
+    }
+
+    private static void ResetEntertainmentUsageIfNewDayUnsafe(BlockProfile profile, DateTime localNow)
+    {
+        var key = localNow.ToString("yyyyMMdd");
+        if (string.Equals(profile.EntertainmentUsageDateKey, key, StringComparison.Ordinal)) return;
+        profile.EntertainmentUsageDateKey = key;
+        profile.EntertainmentUsedSecondsToday = 0;
     }
 
     private static void ResetAllowanceIfNewDayUnsafe(BlockProfile profile, DateTime localNow)
@@ -1690,12 +2288,17 @@ public sealed class FocusAuthorityEngine
         rule.Id = string.IsNullOrWhiteSpace(rule.Id) ? Guid.NewGuid().ToString("N") : rule.Id;
         rule.Name = string.IsNullOrWhiteSpace(rule.Name) ? rule.Pattern : TrimTo(rule.Name.Trim(), 120);
         rule.Enabled = true;
+        var requestedProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == rule.BlockProfileId);
         if (rule.Category == AppCategory.Entertainment)
         {
-            var requestedProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == rule.BlockProfileId);
             var profile = requestedProfile ?? GetDefaultBlockProfileUnsafe();
             rule.BlockProfileId = profile.Id;
             rule.BlockProfileName = profile.Name;
+        }
+        else if (requestedProfile is not null)
+        {
+            rule.BlockProfileId = requestedProfile.Id;
+            rule.BlockProfileName = requestedProfile.Name;
         }
         else
         {
@@ -1710,14 +2313,31 @@ public sealed class FocusAuthorityEngine
 
     private string SetBrowserProfile(string? ruleId, string? profileId)
     {
-        var rule = _state.BrowserRules.FirstOrDefault(r => r.Id == ruleId) ?? throw new InvalidOperationException("Không tìm thấy website rule.");
-        if (rule.Category != AppCategory.Entertainment) throw new InvalidOperationException("Profile chỉ áp dụng cho website giải trí.");
-        var profile = _state.BlockProfiles.FirstOrDefault(p => p.Id == profileId) ?? throw new InvalidOperationException("Không tìm thấy profile.");
+        var rule = _state.BrowserRules.FirstOrDefault(r => r.Id == ruleId)
+                   ?? throw new InvalidOperationException("Không tìm thấy website rule.");
+
+        if (rule.Category == AppCategory.Focus && string.IsNullOrWhiteSpace(profileId))
+        {
+            rule.BlockProfileId = "";
+            rule.BlockProfileName = "";
+            AddAudit("Reward", $"{rule.DisplayName}: bỏ gán nguồn Focus khỏi Profile; dùng công thức chung.");
+            _store.Save(_state);
+            return $"Đã bỏ gán {rule.DisplayName}; nguồn Focus này dùng công thức chung.";
+        }
+
+        var profile = _state.BlockProfiles.FirstOrDefault(p => p.Id == profileId)
+                      ?? throw new InvalidOperationException("Không tìm thấy profile.");
         rule.BlockProfileId = profile.Id;
         rule.BlockProfileName = profile.Name;
-        AddAudit("Browser", $"{rule.DisplayName}: gán vào profile {profile.Name}.");
+        AddAudit(
+            rule.Category == AppCategory.Focus ? "Reward" : "Browser",
+            rule.Category == AppCategory.Focus
+                ? $"{rule.DisplayName}: gán làm nguồn Focus của profile {profile.Name}."
+                : $"{rule.DisplayName}: gán vào profile {profile.Name}.");
         _store.Save(_state);
-        return $"Đã gán {rule.DisplayName} vào {profile.Name}.";
+        return rule.Category == AppCategory.Focus
+            ? $"Đã gán {rule.DisplayName} làm nguồn Focus của {profile.Name}."
+            : $"Đã gán {rule.DisplayName} vào {profile.Name}.";
     }
 
     private string RemoveBrowserRule(string? id)
@@ -1759,13 +2379,19 @@ public sealed class FocusAuthorityEngine
 
     private static string NormalizeBrowserPattern(string? pattern, BrowserRuleMatchType matchType)
     {
-        pattern = (pattern ?? "").Trim();
-        if (matchType == BrowserRuleMatchType.HostSuffix)
+        var normalized = BrowserRuleUrlHelper.NormalizePattern(pattern, matchType);
+
+        if ((matchType == BrowserRuleMatchType.UrlPrefix ||
+             matchType == BrowserRuleMatchType.ExactUrl) &&
+            string.IsNullOrWhiteSpace(normalized))
         {
-            if (Uri.TryCreate(pattern, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host)) pattern = uri.Host;
-            pattern = pattern.Trim().TrimStart('*').TrimStart('.').TrimEnd('.').ToLowerInvariant();
+            throw new InvalidOperationException(
+                "URL không hợp lệ. Với rule theo URL, hãy dùng địa chỉ đầy đủ bắt đầu bằng http:// hoặc https://.");
         }
-        return TrimTo(pattern, matchType == BrowserRuleMatchType.TitleContains ? 256 : 2048);
+
+        return TrimTo(
+            normalized,
+            matchType == BrowserRuleMatchType.TitleContains ? 256 : 2048);
     }
 
     private string UpdateSettings(UserSettings? settings)
@@ -1849,6 +2475,13 @@ public sealed class FocusAuthorityEngine
             ServiceStatus = _state.ClockRollbackDetected ? "Guard đang khóa do thay đổi giờ" : _state.IntegrityIssueDetected ? "Guard đang chạy · đã khôi phục dữ liệu backup" : "Guard đang chạy",
             CurrentMode = _currentMode,
             CurrentApp = _currentApp,
+            CurrentFocusRewardProfileId = _currentFocusRewardProfileId,
+            CurrentFocusRewardProfileName = _currentFocusRewardProfileName,
+            CurrentFocusRewardProgressSeconds = _currentFocusRewardProgressSeconds,
+            CurrentFocusRewardTargetSeconds = _currentFocusRewardTargetSeconds,
+            CurrentFocusRewardSecondsPerKey = _currentFocusRewardSecondsPerKey,
+            LastExternalAppName = _lastExternalAppName,
+            LastExternalAppPath = _lastExternalAppPath,
             IsIdle = _isIdle,
             ActivityEventsLastMinute = _activityEvents.Count,
             HeartbeatHealthy = HeartbeatHealthyUnsafe(),
@@ -1864,12 +2497,16 @@ public sealed class FocusAuthorityEngine
             CurrentBrowserProfile = _currentBrowserProfile,
             CurrentBrowserAccess = _currentBrowserAccess,
             CurrentBrowserAllowanceRemainingSeconds = _currentBrowserAllowanceRemainingSeconds,
+            CurrentBrowserDailyBudgetRemainingSeconds = _currentBrowserDailyBudgetRemainingSeconds,
+            CurrentBrowserCooldownRemainingSeconds = _currentBrowserCooldownRemainingSeconds,
             BrowserForegroundActive = _browserContext is not null && BrowserForegroundActiveUnsafe(_browserContext.Browser),
             EntertainmentSessionActive = _entertainmentSessionActive,
             EntertainmentAccessMode = AccessModeShortLabel(_currentEntertainmentAccess),
             EntertainmentProfileName = _currentEntertainmentProfile,
             EntertainmentAllowanceRemainingSeconds = _currentEntertainmentAllowanceRemainingSeconds,
             EntertainmentWalletRemainingSeconds = _state.EntertainmentBalanceSeconds,
+            EntertainmentDailyBudgetRemainingSeconds = _currentEntertainmentDailyBudgetRemainingSeconds,
+            EntertainmentCooldownRemainingSeconds = _currentEntertainmentCooldownRemainingSeconds,
             EntertainmentUsableRemainingSeconds = CurrentEntertainmentUsableRemainingSecondsUnsafe(),
             BrowserDocumentVisible = _browserContext?.DocumentVisible == true,
             BrowserMediaPlaying = _browserContext?.MediaPlaying == true,
@@ -1882,6 +2519,25 @@ public sealed class FocusAuthorityEngine
             Analytics = BuildAnalyticsUnsafe(),
             SnapshotUtc = DateTime.UtcNow
         };
+    }
+
+    private static bool ShouldRememberAsExternalQuickAddApp(string processName, string path)
+    {
+        if (string.IsNullOrWhiteSpace(processName) || string.IsNullOrWhiteSpace(path))
+            return false;
+
+        var name = processName.Trim();
+        if (name.StartsWith("FocusLock", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Shell/processes that should never be offered by one-click Quick Add.
+        if (name.Equals("explorer", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("dwm", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("SearchHost", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("StartMenuExperienceHost", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return File.Exists(path);
     }
 
     private bool HeartbeatHealthyUnsafe()
@@ -2135,7 +2791,7 @@ public sealed class FocusAuthorityEngine
         // Existing V1-V5 users should not be forced through the first-run wizard after upgrade.
         if (previousSchema < 7 && (_state.Apps.Count > 0 || _state.Keys.Count > 0 || _state.TotalFocusSeconds > 0 || _state.TotalEntertainmentSeconds > 0))
             _state.Settings.OnboardingCompleted = true;
-        _state.SchemaVersion = 12;
+        _state.SchemaVersion = 17;
         _state.DailyUsage ??= new();
         _state.AppUsage ??= new();
         _state.SessionHistory ??= new();
@@ -2181,7 +2837,29 @@ public sealed class FocusAuthorityEngine
             }
 
             profile.DailyAllowanceMinutes = Math.Clamp(profile.DailyAllowanceMinutes, 0, 1440);
+            profile.DailyBudgetMinutes = Math.Clamp(profile.DailyBudgetMinutes, 0, 1440);
+            profile.EntertainmentUsedSecondsToday = Math.Max(0, profile.EntertainmentUsedSecondsToday);
+            profile.CooldownAfterMinutes = Math.Clamp(profile.CooldownAfterMinutes <= 0 ? 30 : profile.CooldownAfterMinutes, 1, 1440);
+            profile.CooldownMinutes = Math.Clamp(profile.CooldownMinutes <= 0 ? 10 : profile.CooldownMinutes, 1, 1440);
+            profile.CooldownProgressSeconds = Math.Clamp(
+                profile.CooldownProgressSeconds,
+                0,
+                Math.Max(0, profile.CooldownAfterMinutes * 60 - 1));
+            if (profile.CooldownUntilUtc is DateTime cooldownUntil && cooldownUntil <= DateTime.UtcNow)
+            {
+                profile.CooldownUntilUtc = null;
+                profile.CooldownProgressSeconds = 0;
+            }
+            if (!profile.CooldownEnabled && profile.CooldownUntilUtc is null)
+                profile.CooldownProgressSeconds = 0;
+            profile.RewardFocusMinutes = Math.Clamp(profile.RewardFocusMinutes <= 0 ? _state.Settings.FocusMinutesPerKey : profile.RewardFocusMinutes, 1, 1440);
+            profile.RewardMinutes = Math.Clamp(profile.RewardMinutes <= 0 ? _state.Settings.RewardMinutesPerKey : profile.RewardMinutes, 1, 1440);
+            profile.RewardProgressSeconds = Math.Clamp(
+                profile.RewardProgressSeconds,
+                0,
+                Math.Max(0, profile.RewardFocusMinutes * 60 - 1));
             ResetAllowanceIfNewDayUnsafe(profile, DateTime.Now);
+            ResetEntertainmentUsageIfNewDayUnsafe(profile, DateTime.Now);
         }
         foreach (var app in _state.Apps.Where(a => a.Category == AppCategory.Entertainment))
         {
@@ -2212,10 +2890,48 @@ public sealed class FocusAuthorityEngine
                 rule.BlockProfileName = _state.BlockProfiles.First(p => p.Id == rule.BlockProfileId).Name;
             }
         }
+        foreach (var app in _state.Apps.Where(a => a.Category == AppCategory.Focus))
+        {
+            if (string.IsNullOrWhiteSpace(app.BlockProfileId))
+            {
+                app.BlockProfileId = "";
+                app.BlockProfileName = "";
+            }
+            else
+            {
+                var profile = _state.BlockProfiles.FirstOrDefault(p => p.Id == app.BlockProfileId);
+                if (profile is null)
+                {
+                    app.BlockProfileId = "";
+                    app.BlockProfileName = "";
+                }
+                else
+                {
+                    app.BlockProfileName = profile.Name;
+                }
+            }
+        }
+
         foreach (var rule in _state.BrowserRules.Where(r => r.Category == AppCategory.Focus))
         {
-            rule.BlockProfileId = "";
-            rule.BlockProfileName = "";
+            if (string.IsNullOrWhiteSpace(rule.BlockProfileId))
+            {
+                rule.BlockProfileId = "";
+                rule.BlockProfileName = "";
+            }
+            else
+            {
+                var profile = _state.BlockProfiles.FirstOrDefault(p => p.Id == rule.BlockProfileId);
+                if (profile is null)
+                {
+                    rule.BlockProfileId = "";
+                    rule.BlockProfileName = "";
+                }
+                else
+                {
+                    rule.BlockProfileName = profile.Name;
+                }
+            }
         }
         // V7.4: reward keys must live for at least 24 hours. Upgrade existing
         // short-lived unredeemed keys and re-sign them because expiry is part of the HMAC.
@@ -2259,6 +2975,40 @@ public sealed class FocusAuthorityEngine
         PruneStatisticsUnsafe();
         _state.EntertainmentBalanceSeconds = Math.Max(0, _state.EntertainmentBalanceSeconds);
         _state.FocusProgressSeconds = Math.Max(0, _state.FocusProgressSeconds);
+
+        var focusSession = _state.ControlPolicy;
+        focusSession.FocusSessionTargetSeconds = Math.Clamp(focusSession.FocusSessionTargetSeconds, 0, 24 * 60 * 60);
+        focusSession.FocusSessionQualifiedSeconds = Math.Clamp(
+            focusSession.FocusSessionQualifiedSeconds,
+            0,
+            Math.Max(0, focusSession.FocusSessionTargetSeconds));
+        focusSession.FocusSessionRewardSeconds = Math.Clamp(focusSession.FocusSessionRewardSeconds, 0, 24 * 60 * 60);
+
+        if (focusSession.FocusSessionTargetSeconds <= 0 ||
+            focusSession.FocusSessionStartedUtc is null ||
+            focusSession.FocusSessionQualifiedSeconds >= focusSession.FocusSessionTargetSeconds)
+        {
+            focusSession.FocusSessionStartedUtc = null;
+            focusSession.FocusSessionTargetSeconds = 0;
+            focusSession.FocusSessionQualifiedSeconds = 0;
+            focusSession.FocusSessionRewardSeconds = 0;
+            focusSession.FocusSessionProfileId = "";
+            focusSession.FocusSessionProfileName = "";
+        }
+        else if (!string.IsNullOrWhiteSpace(focusSession.FocusSessionProfileId))
+        {
+            var boundProfile = _state.BlockProfiles.FirstOrDefault(
+                p => p.Id == focusSession.FocusSessionProfileId && p.Enabled);
+            if (boundProfile is null)
+            {
+                focusSession.FocusSessionProfileId = "";
+                focusSession.FocusSessionProfileName = "";
+            }
+            else
+            {
+                focusSession.FocusSessionProfileName = boundProfile.Name;
+            }
+        }
         foreach (var app in _state.Apps)
             if (string.IsNullOrWhiteSpace(app.Id)) app.Id = Guid.NewGuid().ToString("N");
     }
@@ -2287,6 +3037,10 @@ public sealed class FocusAuthorityEngine
             throw new InvalidOperationException("Giới hạn session phải từ 100 đến 20000.");
         if (s.BrowserContextTimeoutSeconds < 2 || s.BrowserContextTimeoutSeconds > 30)
             throw new InvalidOperationException("Browser context timeout phải từ 2 đến 30 giây.");
+        if (s.LockCountdownWarningSeconds < 5 || s.LockCountdownWarningSeconds > 600)
+            throw new InvalidOperationException("Countdown cảnh báo phải từ 5 đến 600 giây.");
+        if (s.LockCountdownCriticalSeconds < 1 || s.LockCountdownCriticalSeconds >= s.LockCountdownWarningSeconds)
+            throw new InvalidOperationException("Countdown đỏ phải từ 1 giây và nhỏ hơn mốc cảnh báo.");
     }
 
     private static bool PathsEqual(string a, string b)

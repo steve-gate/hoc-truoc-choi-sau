@@ -47,6 +47,198 @@
                             <StackPanel Grid.Column="1" Margin="16,0,0,0"><TextBlock Text="Lịch tuần" Style="{StaticResource LabelText}"/><TextBlock x:Name="ScheduleSummaryText" FontWeight="SemiBold"/><CheckBox x:Name="ScheduleEnabledCheck" Content="Áp dụng lịch tuần"/></StackPanel>
                             <Button Grid.Column="2" Content="Mở lịch tuần" Click="OpenSchedule_Click" VerticalAlignment="Center" Margin="12,0,0,0"/>
                         </Grid>
+
+                        <Border Background="#FFF7F1"
+                                BorderBrush="#F0D8BF"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="12"
+                                Margin="0,14,0,0">
+                            <StackPanel>
+                                <CheckBox x:Name="DailyBudgetEnabledCheck"
+                                          Content="Giới hạn tổng thời gian giải trí của Profile mỗi ngày"
+                                          FontWeight="SemiBold"/>
+                                <Grid Margin="24,9,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Ngân sách / ngày" Style="{StaticResource LabelText}"/>
+                                        <DockPanel>
+                                            <TextBox x:Name="DailyBudgetBox"
+                                                     Width="100"
+                                                     IsEnabled="{Binding ElementName=DailyBudgetEnabledCheck, Path=IsChecked}"/>
+                                            <TextBlock Text="phút"
+                                                       Margin="8,0,0,0"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{StaticResource MutedBrush}"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                                        <TextBlock Text="Tình trạng hôm nay" Style="{StaticResource LabelText}"/>
+                                        <TextBlock x:Name="DailyBudgetTodayText"
+                                                   TextWrapping="Wrap"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Text="Đây là trần cứng của cả Profile: mọi app + website cộng chung. Hết ngân sách thì khóa dù ví Focus vẫn còn."
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   FontSize="11.5"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#F3F6FF"
+                                BorderBrush="#D7E0FA"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="12"
+                                Margin="0,10,0,0">
+                            <StackPanel>
+                                <CheckBox x:Name="CooldownEnabledCheck"
+                                          Content="Bật cooldown sau giải trí"
+                                          FontWeight="SemiBold"/>
+                                <Grid Margin="24,9,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180"/>
+                                        <ColumnDefinition Width="45"/>
+                                        <ColumnDefinition Width="180"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Giải trí trong một chu kỳ" Style="{StaticResource LabelText}"/>
+                                        <DockPanel>
+                                            <TextBox x:Name="CooldownAfterMinutesBox" Width="90" IsEnabled="{Binding ElementName=CooldownEnabledCheck, Path=IsChecked}"/>
+                                            <TextBlock Text="phút" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="→" FontSize="22" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,18,0,0"/>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Nghỉ bắt buộc" Style="{StaticResource LabelText}"/>
+                                        <DockPanel>
+                                            <TextBox x:Name="CooldownMinutesBox" Width="90" IsEnabled="{Binding ElementName=CooldownEnabledCheck, Path=IsChecked}"/>
+                                            <TextBlock Text="phút" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Margin="18,0,0,0">
+                                        <TextBlock Text="Tình trạng" Style="{StaticResource LabelText}"/>
+                                        <TextBlock x:Name="CooldownStatusText" Text="—" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="App + website giải trí trong cùng Profile dùng chung chu kỳ. Đủ mốc thì toàn Profile bị khóa trong thời gian nghỉ; khởi động lại FocusLock không bỏ được cooldown."
+                                                   Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left">
+                                <TextBlock Text="Công thức thưởng theo Profile" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock Text="Gán các app/website Học-Làm việc làm nguồn Focus của Profile này. Khi nguồn đó được Focus hợp lệ, chỉ tiến độ thưởng của Profile này tăng."
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"
+                                           MaxWidth="690"/>
+                            </StackPanel>
+                            <TextBlock x:Name="FocusSourceCountText"
+                                       DockPanel.Dock="Right"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Margin="16,0,0,0"/>
+                        </DockPanel>
+
+                        <CheckBox x:Name="CustomRewardEnabledCheck"
+                                  Content="Dùng công thức thưởng riêng cho các nguồn Focus của Profile này"
+                                  FontWeight="SemiBold"
+                                  Margin="0,14,0,0"/>
+
+                        <Grid x:Name="RewardFormulaPanel" Margin="24,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="45"/>
+                                <ColumnDefinition Width="180"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Focus hợp lệ" Style="{StaticResource LabelText}"/>
+                                <DockPanel>
+                                    <TextBox x:Name="RewardFocusMinutesBox" Width="90"/>
+                                    <TextBlock Text="phút" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                </DockPanel>
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="→" FontSize="22" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,18,0,0"/>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Tạo key thưởng" Style="{StaticResource LabelText}"/>
+                                <DockPanel>
+                                    <TextBox x:Name="RewardMinutesBox" Width="90"/>
+                                    <TextBlock Text="phút" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                </DockPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Margin="18,0,0,0">
+                                <TextBlock Text="Xem trước" Style="{StaticResource LabelText}"/>
+                                <TextBlock x:Name="RewardFormulaPreviewText"
+                                           Text="—"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock x:Name="RewardProgressText"
+                                           Text="—"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Separator Margin="0,15,0,12" Background="{StaticResource BorderBrush}"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock Text="Nguồn Focus · ứng dụng" FontWeight="Bold" Margin="0,0,0,8"/>
+                                <ListBox x:Name="FocusAppsList" Height="180">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsMember, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="6">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock Text="Nguồn Focus · website" FontWeight="Bold" Margin="0,0,0,8"/>
+                                <ListBox x:Name="FocusWebsitesList" Height="180">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox IsChecked="{Binding IsMember, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Margin="6">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                                                </StackPanel>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Text="Một nguồn Focus chỉ thuộc tối đa một Profile. Bỏ chọn sẽ đưa nguồn đó về công thức thưởng chung."
+                                   Foreground="{StaticResource SubtleBrush}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap"
+                                   Margin="0,10,0,0"/>
                     </StackPanel>
                 </Border>
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "FocusLock Browser Bridge",
-  "version": "7.6.4",
-  "description": "FocusLock V7.6.4: web time accounted directly from extension foreground elapsed.",
+  "version": "7.7.9",
+  "description": "FocusLock V7.7.9 OneDir: browser accounting + Profile policies + cooldown.",
   "minimum_chrome_version": "120",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAycfAaocoCl2c9rJUFa9EW48BQ3TdmNSgd7IZoBNNSyOVS6pCR7Nhae9XxN/BlSkGPmniOdaJTazdHgI5hmMWupk/prxa6P02Fs0dr75cUJ6RpDSOwDZKcDghvB1pzzstxlI/1EGJlsI8D0ArEGstjo4RM4mvM10LZf1TnQ/yj1IwjeiiU9OauPspUG+a4CYqrOk1Sjc74LKKUg5PA7d3OR/X6PO0GmKL8XIXHxT5zMEVRN0CneV1l75ZHgkxxlTWh42kmUM+NN0q3ZmYVA+DAeG4Z/jeDSdG0BEfvwAGbn8zYku1rG6XKCbaqCtAptyb29gRmZpD0ZUr18niwgfPQwIDAQAB",
   "permissions": [
@@ -35,6 +35,5 @@
   "host_permissions": [
     "http://*/*",
     "https://*/*"
-  ],
-  "version_name": "7.6.4 Direct Browser Accounting"
+  ]
 }

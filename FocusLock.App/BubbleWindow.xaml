@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Width="292" Height="132" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False" Focusable="False">
-    <Border Background="#F7FFFFFF" CornerRadius="20" Padding="15" BorderBrush="#E4E9F2" BorderThickness="1">
+    <Border x:Name="RootBorder" Background="#F7FFFFFF" CornerRadius="20" Padding="15" BorderBrush="#E4E9F2" BorderThickness="1">
         <Border.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="6" Opacity="0.16"/></Border.Effect>
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

@@ -1,4 +1,4 @@
-﻿<Window x:Class="FocusLock.App.MainWindow"
+<Window x:Class="FocusLock.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="FocusLock — Học trước · chơi sau"
@@ -27,7 +27,7 @@
                     <StackPanel Margin="11,1,0,0">
                         <TextBlock Text="FocusLock" FontSize="18" FontWeight="Bold"/>
                         <TextBlock Text="Học trước · chơi sau" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Margin="0,1,0,0"/>
-                        <TextBlock Text="V7.7.0" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
+                        <TextBlock Text="V7.7.9" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
                     </StackPanel>
                 </StackPanel>
 
@@ -250,7 +250,7 @@
                                                     <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="13">
                                                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="38"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                                             <Border Width="34" Height="34" CornerRadius="10" Background="{StaticResource FocusSoftBrush}"><TextBlock Text="▣" Foreground="{StaticResource FocusBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16"/></Border>
-                                                            <StackPanel Grid.Column="1" Margin="10,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5"/><TextBlock Text="{Binding ProcessName}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" Margin="0,2,0,0"/></StackPanel>
+                                                            <StackPanel Grid.Column="1" Margin="10,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13.5"/><TextBlock Text="{Binding ProcessName}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" Margin="0,2,0,0"/><TextBlock Text="{Binding BlockProfileLabel}" Foreground="{StaticResource SuccessBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,0"/></StackPanel>
                                                             <StackPanel Grid.Column="2" Orientation="Horizontal"><Button Style="{StaticResource TextButton}" Content="Bật/Tắt" CommandParameter="{Binding}" Click="ToggleAppCard_Click"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" CommandParameter="{Binding}" Click="RemoveAppCard_Click"/></StackPanel>
                                                         </Grid>
                                                     </Border>
@@ -337,7 +337,7 @@
                                     </Grid>
                                     <Button Style="{StaticResource TextButton}" Content="Lấy website đang mở" Click="UseCurrentSimpleBrowserPage_Click" HorizontalAlignment="Left" Margin="0,7,0,0" Foreground="{StaticResource AccentBrush}"/>
 
-                                    <Expander Header="Tùy chọn nâng cao" Margin="0,14,0,0" Foreground="{StaticResource MutedBrush}">
+                                    <Expander Header="Phân loại thông minh theo URL · rule cụ thể thắng rule domain" IsExpanded="True" Margin="0,14,0,0" Foreground="{StaticResource MutedBrush}">
                                         <Border Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="0,8,0,0">
                                             <StackPanel>
                                                 <Grid>
@@ -345,6 +345,7 @@
                                                     <ComboBox x:Name="BrowserMatchTypeCombo" SelectedIndex="0">
                                                         <ComboBoxItem Content="Domain / subdomain" Tag="HostSuffix"/>
                                                         <ComboBoxItem Content="URL bắt đầu bằng" Tag="UrlPrefix"/>
+                                                        <ComboBoxItem Content="Chính xác trang / URL" Tag="ExactUrl"/>
                                                         <ComboBoxItem Content="URL chứa" Tag="UrlContains"/>
                                                         <ComboBoxItem Content="Tiêu đề tab chứa" Tag="TitleContains"/>
                                                     </ComboBox>
@@ -356,7 +357,7 @@
                                                     <Button Style="{StaticResource PlayButton}" Content="+ Rule Giải trí" Click="AddBrowserEntertainmentRule_Click" Margin="0,0,8,0"/>
                                                     <Button Content="Lấy trang hiện tại" Click="UseCurrentBrowserPage_Click"/>
                                                 </StackPanel>
-                                                <TextBlock Text="Quy tắc chi tiết thắng quy tắc domain. Dùng khi chỉ muốn cho phép một playlist/trang cụ thể." Foreground="{StaticResource SubtleBrush}" FontSize="11.5" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                                <TextBlock Text="Thứ tự ưu tiên: Chính xác URL → URL bắt đầu bằng → Tiêu đề/URL chứa → Domain. Ví dụ youtube.com là Giải trí nhưng một kênh học cụ thể vẫn có thể đặt là Học." Foreground="{StaticResource SubtleBrush}" FontSize="11.5" Margin="0,8,0,0" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </Border>
                                     </Expander>
@@ -369,7 +370,7 @@
                                     <StackPanel><TextBlock Text="Website học tập" Style="{StaticResource SectionTitle}"/><TextBlock Text="V7.3 tính trực tiếp từ Extension: tab phải ở foreground. Click/gõ/cuộn cho 90 giây đọc chủ động; video/audio đang phát thật tiếp tục được tính." Foreground="{StaticResource MutedBrush}" Margin="0,3,0,12"/>
                                         <ListBox x:Name="BrowserFocusRulesList" BorderThickness="0" Background="Transparent" MaxHeight="360">
                                             <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/></Style></ListBox.ItemContainerStyle>
-                                            <ListBox.ItemTemplate><DataTemplate><Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="11" Padding="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding Pattern}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextTrimming="CharacterEllipsis"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Style="{StaticResource TextButton}" Content="Bật/Tắt" CommandParameter="{Binding}" Click="ToggleBrowserRuleCard_Click"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" CommandParameter="{Binding}" Click="RemoveBrowserRuleCard_Click"/></StackPanel></Grid></Border></DataTemplate></ListBox.ItemTemplate>
+                                            <ListBox.ItemTemplate><DataTemplate><Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="11" Padding="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding MatchTypeLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10.8" FontWeight="SemiBold" Margin="0,2,0,0"/><TextBlock Text="{Binding Pattern}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding BlockProfileLabel}" Foreground="{StaticResource SuccessBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,2,0,0"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Style="{StaticResource TextButton}" Content="Bật/Tắt" CommandParameter="{Binding}" Click="ToggleBrowserRuleCard_Click"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" CommandParameter="{Binding}" Click="RemoveBrowserRuleCard_Click"/></StackPanel></Grid></Border></DataTemplate></ListBox.ItemTemplate>
                                         </ListBox>
                                         <TextBlock x:Name="BrowserFocusEmptyText" Text="Chưa có website học tập." Foreground="{StaticResource SubtleBrush}" Margin="0,8,0,0"/>
                                     </StackPanel>
@@ -378,7 +379,7 @@
                                     <StackPanel><TextBlock Text="Website giải trí" Style="{StaticResource SectionTitle}"/><TextBlock Text="Website giải trí là thành viên của Profile. Quản lý thành viên, ví/allowance và lịch tập trung tại Profile Center." Foreground="{StaticResource MutedBrush}" Margin="0,3,0,12" TextWrapping="Wrap"/>
                                         <ListBox x:Name="BrowserEntertainmentRulesList" BorderThickness="0" Background="Transparent" MaxHeight="360">
                                             <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/></Style></ListBox.ItemContainerStyle>
-                                            <ListBox.ItemTemplate><DataTemplate><Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="11" Padding="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding Pattern}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding BlockProfileLabel}" Foreground="{StaticResource AccentBrush}" FontSize="11" Margin="0,2,0,0" FontWeight="SemiBold"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Style="{StaticResource TextButton}" Content="Profile Center" ToolTip="Quản lý website theo Profile" Click="OpenProfileCenter_Click" Foreground="{StaticResource AccentBrush}"/><Button Style="{StaticResource TextButton}" Content="Bật/Tắt" CommandParameter="{Binding}" Click="ToggleBrowserRuleCard_Click"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" CommandParameter="{Binding}" Click="RemoveBrowserRuleCard_Click"/></StackPanel></Grid></Border></DataTemplate></ListBox.ItemTemplate>
+                                            <ListBox.ItemTemplate><DataTemplate><Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="11" Padding="12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding MatchTypeLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10.8" FontWeight="SemiBold" Margin="0,2,0,0"/><TextBlock Text="{Binding Pattern}" Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding BlockProfileLabel}" Foreground="{StaticResource AccentBrush}" FontSize="11" Margin="0,2,0,0" FontWeight="SemiBold"/></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Style="{StaticResource TextButton}" Content="Profile Center" ToolTip="Quản lý website theo Profile" Click="OpenProfileCenter_Click" Foreground="{StaticResource AccentBrush}"/><Button Style="{StaticResource TextButton}" Content="Bật/Tắt" CommandParameter="{Binding}" Click="ToggleBrowserRuleCard_Click"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" CommandParameter="{Binding}" Click="RemoveBrowserRuleCard_Click"/></StackPanel></Grid></Border></DataTemplate></ListBox.ItemTemplate>
                                         </ListBox>
                                         <TextBlock x:Name="BrowserEntertainmentEmptyText" Text="Chưa có website giải trí." Foreground="{StaticResource SubtleBrush}" Margin="0,8,0,0"/>
                                     </StackPanel>
@@ -456,6 +457,92 @@
                             
 
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <StackPanel DockPanel.Dock="Left">
+                                            <TextBlock Text="Focus Session — phiên tập trung có mục tiêu" Style="{StaticResource SectionTitle}"/>
+                                            <TextBlock Text="Phiên chỉ tiến khi FocusLock đang cộng Focus hợp lệ. Trong lúc chạy, app giải trí đã khai báo bị khóa và browser chỉ cho rule Học/Làm việc. Idle hoặc hoạt động không đủ sẽ tạm dừng tiến độ."
+                                                       Foreground="{StaticResource MutedBrush}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,4,0,0"
+                                                       MaxWidth="650"/>
+                                        </StackPanel>
+                                        <Button x:Name="AbandonFocusSessionButton"
+                                                DockPanel.Dock="Right"
+                                                Content="Bỏ phiên · không thưởng"
+                                                Click="AbandonFocusSession_Click"
+                                                IsEnabled="False"
+                                                VerticalAlignment="Top"
+                                                Margin="18,0,0,0"/>
+                                    </DockPanel>
+
+                                    <TextBlock x:Name="FocusSessionStatusText"
+                                               Text="○ Chưa có Focus Session"
+                                               FontWeight="SemiBold"
+                                               Margin="0,14,0,0"/>
+                                    <ProgressBar x:Name="FocusSessionProgressBar"
+                                                 Height="10"
+                                                 Minimum="0"
+                                                 Maximum="1"
+                                                 Value="0"
+                                                 Margin="0,9,0,0"/>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBlock x:Name="FocusSessionProgressDetailText"
+                                                   Text="00:00 / 00:00"
+                                                   Foreground="{StaticResource MutedBrush}"/>
+                                        <TextBlock x:Name="FocusSessionRewardText"
+                                                   DockPanel.Dock="Right"
+                                                   Text="Hoàn thành sẽ tạo key thưởng"
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   FontWeight="SemiBold"/>
+                                    </DockPanel>
+
+                                    <Separator Margin="0,14,0,12" Background="{StaticResource BorderBrush}"/>
+
+                                    <StackPanel x:Name="FocusSessionStartPanel">
+                                        <TextBlock Text="Nguồn Focus / công thức thưởng của phiên" Style="{StaticResource LabelText}"/>
+                                        <ComboBox x:Name="FocusSessionProfileCombo"
+                                                  DisplayMemberPath="Label"
+                                                  SelectionChanged="FocusSessionProfileCombo_SelectionChanged"
+                                                  Margin="0,5,0,10"
+                                                  MaxWidth="620"
+                                                  HorizontalAlignment="Left"
+                                                  MinWidth="390"/>
+
+                                        <DockPanel>
+                                            <StackPanel DockPanel.Dock="Left">
+                                                <TextBlock Text="Bắt đầu nhanh" Style="{StaticResource LabelText}"/>
+                                                <WrapPanel Margin="0,5,0,0">
+                                                    <Button Style="{StaticResource FocusButton}" Content="25 phút" Tag="25" Click="StartFocusSessionPreset_Click" Margin="0,0,7,0"/>
+                                                    <Button Style="{StaticResource FocusButton}" Content="50 phút" Tag="50" Click="StartFocusSessionPreset_Click" Margin="0,0,7,0"/>
+                                                    <Button Style="{StaticResource FocusButton}" Content="90 phút" Tag="90" Click="StartFocusSessionPreset_Click"/>
+                                                </WrapPanel>
+                                            </StackPanel>
+
+                                            <StackPanel DockPanel.Dock="Right" Margin="26,0,0,0">
+                                                <TextBlock Text="Tùy chỉnh" Style="{StaticResource LabelText}"/>
+                                                <DockPanel Margin="0,5,0,0">
+                                                    <TextBox x:Name="FocusSessionMinutesBox"
+                                                             Text="25"
+                                                             Width="80"
+                                                             TextChanged="FocusSessionMinutesBox_TextChanged"/>
+                                                    <TextBlock Text="phút" Margin="8,0,10,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                                    <Button Style="{StaticResource PrimaryButton}" Content="Bắt đầu phiên" Click="StartFocusSessionCustom_Click"/>
+                                                </DockPanel>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+
+                                    <TextBlock x:Name="FocusSessionPresetRewardPreviewText"
+                                               Text="Thưởng được tính theo tỷ lệ Focus → Reward hiện tại."
+                                               Foreground="{StaticResource SubtleBrush}"
+                                               FontSize="11.5"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <StackPanel>
@@ -506,7 +593,7 @@
                             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                                 <StackPanel>
                                     <DockPanel>
-                                        <StackPanel DockPanel.Dock="Left"><TextBlock Text="Block Profiles — Trung tâm quản lý" Style="{StaticResource SectionTitle}"/><TextBlock Text="Profile là nguồn chính sách duy nhất cho App + Website giải trí: thành viên, allowance, lịch, ví và cách khóa." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/></StackPanel>
+                                        <StackPanel DockPanel.Dock="Left"><TextBlock Text="Profiles — policy + cooldown + nguồn Focus + công thức thưởng" Style="{StaticResource SectionTitle}"/><TextBlock Text="Mỗi Profile có thể đặt chính sách giải trí, cooldown bắt buộc, nguồn Focus và công thức thưởng riêng; nguồn Focus chưa gán Profile tiếp tục dùng công thức chung." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/></StackPanel>
                                         <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Mở Profile Center" Click="OpenProfileCenter_Click" VerticalAlignment="Center"/>
                                     </DockPanel>
                                     <ItemsControl x:Name="ProfilePolicyItems" Margin="0,14,0,0">
@@ -520,6 +607,10 @@
                                                             <TextBlock Text="{Binding MembershipSummary}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" Margin="0,3,0,0"/>
                                                             <TextBlock Text="{Binding PolicySummary}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
                                                             <TextBlock Text="{Binding AllowanceSummary}" Foreground="{StaticResource SubtleBrush}" FontSize="11.5" Margin="0,3,0,0"/>
+                                                            <TextBlock Text="{Binding DailyBudgetSummary}" Foreground="{StaticResource AccentBrush}" FontSize="11.5" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                                                            <TextBlock Text="{Binding CooldownSummary}" Foreground="#6F5CC2" FontSize="11.5" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                                                            <TextBlock Text="{Binding RewardRuleSummary}" Foreground="{StaticResource SuccessBrush}" FontSize="11.5" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                                            <TextBlock Text="{Binding RewardProgressSummary}" Foreground="{StaticResource SubtleBrush}" FontSize="11" Margin="0,2,0,0"/>
                                                         </StackPanel>
                                                         <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Quản lý" CommandParameter="{Binding Profile}" Click="EditBlockProfile_Click" VerticalAlignment="Center" Margin="16,0,0,0"/>
                                                     </Grid>
@@ -653,10 +744,74 @@
                                     </Grid>
                                     <Separator Margin="0,18,0,10" Background="{StaticResource BorderBrush}"/>
                                     <CheckBox x:Name="BubbleEnabledCheck" Content="Hiển thị bubble thời gian khi đang học/chơi"/>
+
+                                    <Border Background="#FFF9F2"
+                                            BorderBrush="#F1DFC7"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="12"
+                                            Margin="0,8,0,10">
+                                        <StackPanel>
+                                            <CheckBox x:Name="LockCountdownEnabledCheck"
+                                                      Content="Countdown trước khi khóa giải trí"
+                                                      FontWeight="SemiBold"/>
+                                            <TextBlock Text="Bubble chuyển cam khi sắp hết thời gian và đỏ ở những giây cuối. Countdown chỉ cảnh báo; Guard vẫn là nơi thực thi khóa."
+                                                       Foreground="{StaticResource MutedBrush}"
+                                                       FontSize="11.5"
+                                                       TextWrapping="Wrap"
+                                                       Margin="24,4,0,10"/>
+                                            <Grid Margin="24,0,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="18"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel>
+                                                    <TextBlock Style="{StaticResource LabelText}" Text="Bắt đầu cảnh báo"/>
+                                                    <DockPanel>
+                                                        <TextBox x:Name="LockCountdownWarningBox" MinWidth="90"/>
+                                                        <TextBlock Text="giây" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                                    </DockPanel>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2">
+                                                    <TextBlock Style="{StaticResource LabelText}" Text="Chuyển cảnh báo đỏ"/>
+                                                    <DockPanel>
+                                                        <TextBox x:Name="LockCountdownCriticalBox" MinWidth="90"/>
+                                                        <TextBlock Text="giây" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                                                    </DockPanel>
+                                                </StackPanel>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
                                     <CheckBox x:Name="StartWithWindowsCheck" Content="Mở FocusLock cùng Windows"/>
                                     <CheckBox x:Name="MinimizeToTrayCheck" Content="Ẩn xuống khay hệ thống khi thu nhỏ hoặc bấm nút X"/>
                                     <CheckBox x:Name="BrowserRulesEnabledCheck" Content="Phân loại website bằng Chrome/Edge Extension"/>
                                     <Button Style="{StaticResource PrimaryButton}" Content="Lưu cài đặt" Click="SaveSettings_Click" HorizontalAlignment="Left" Margin="0,14,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <StackPanel DockPanel.Dock="Left">
+                                            <TextBlock Text="Backup / Restore" Style="{StaticResource SectionTitle}"/>
+                                            <TextBlock Text="Sao lưu toàn bộ Profile, app/website, cài đặt, phần thưởng, thống kê và trạng thái bảo vệ vào một file. Restore luôn tạo safety backup trước khi thay dữ liệu." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                        <Border DockPanel.Dock="Right" Background="{StaticResource AccentSoftBrush}" CornerRadius="9" Padding="9,5" Margin="16,0,0,0" VerticalAlignment="Top">
+                                            <TextBlock Text="V7.7.9" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" FontSize="11"/>
+                                        </Border>
+                                    </DockPanel>
+
+                                    <Border Background="#F8FAFC" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14" Margin="0,14,0,0">
+                                        <TextBlock Text="Lưu ý: file .focuslockbackup chứa khóa bảo vệ dữ liệu của FocusLock. Hãy giữ file backup riêng tư. Restore bị chặn khi Settings Protection, Strict Mode, Focus/Locked/Whitelist Session hoặc Cooldown đang hoạt động." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                                    </Border>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                        <Button x:Name="CreateBackupButton" Style="{StaticResource PrimaryButton}" Content="Tạo Backup" Click="CreateBackup_Click" Margin="0,0,10,0"/>
+                                        <Button x:Name="RestoreBackupButton" Content="Restore từ file…" Click="RestoreBackup_Click"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="BackupRestoreStatusText" Text="Chưa thực hiện Backup/Restore trong phiên này." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
 

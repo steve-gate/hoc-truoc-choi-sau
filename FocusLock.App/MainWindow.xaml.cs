@@ -1,4 +1,4 @@
-﻿using System.Windows.Documents;
+using System.Windows.Documents;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Windows;
@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private string _profilePolicyFingerprint = "";
     private string _rulesFingerprint = "";
     private string _keysFingerprint = "";
+    private string _focusSessionProfileFingerprint = "";
     private System.Windows.Forms.NotifyIcon? _trayIcon;
     private System.Windows.Forms.ContextMenuStrip? _trayMenu;
     private bool _allowExit;
@@ -44,6 +45,17 @@ public partial class MainWindow : Window
         public string PolicySummary => Profile.PolicySummary;
         public string ScheduleSummary => Profile.ScheduleLabel;
         public string AllowanceSummary => Profile.AllowanceLabel;
+        public string DailyBudgetSummary => Profile.DailyBudgetLabel;
+        public string CooldownSummary => Profile.CooldownLabel;
+        public string RewardRuleSummary => Profile.RewardRuleLabel;
+        public string RewardProgressSummary => Profile.RewardProgressLabel;
+    }
+
+    private sealed class FocusSessionProfileOption
+    {
+        public string Id { get; init; } = "";
+        public BlockProfile? Profile { get; init; }
+        public string Label { get; init; } = "";
     }
 
     private readonly (string Title, string Subtitle)[] _pages =
@@ -242,25 +254,49 @@ public partial class MainWindow : Window
             ? (_snapshot.InputMonitorHealthy ? "Ổn định · input thật OK" : "Ổn định · đang dùng fallback")
             : "Chưa ổn định";
 
-        var target = Math.Max(60, s.Settings.FocusMinutesPerKey * 60);
+        var focusSessionActive = s.ControlPolicy.FocusSessionActive;
+        var currentRewardTarget = _snapshot.CurrentFocusRewardTargetSeconds > 0
+            ? _snapshot.CurrentFocusRewardTargetSeconds
+            : Math.Max(60, s.Settings.FocusMinutesPerKey * 60);
+        var currentRewardProgress = _snapshot.CurrentFocusRewardTargetSeconds > 0
+            ? Math.Clamp(_snapshot.CurrentFocusRewardProgressSeconds, 0, currentRewardTarget)
+            : Math.Min(currentRewardTarget, s.FocusProgressSeconds);
+        var currentRewardSeconds = _snapshot.CurrentFocusRewardSecondsPerKey > 0
+            ? _snapshot.CurrentFocusRewardSecondsPerKey
+            : Math.Max(60, s.Settings.RewardMinutesPerKey * 60);
+
+        var target = focusSessionActive
+            ? Math.Max(1, s.ControlPolicy.FocusSessionTargetSeconds)
+            : currentRewardTarget;
+        var progress = focusSessionActive
+            ? Math.Clamp(s.ControlPolicy.FocusSessionQualifiedSeconds, 0, target)
+            : currentRewardProgress;
+
         FocusProgressBar.Maximum = target;
-        FocusProgressBar.Value = Math.Min(target, s.FocusProgressSeconds);
-        FocusProgressText.Text = $"{Format(s.FocusProgressSeconds)} / {Format(target)}";
-        var remaining = Math.Max(0, target - s.FocusProgressSeconds);
-        HomeFocusRemainingText.Text = remaining == 0
-            ? "Đã đủ điều kiện nhận phần thưởng"
-            : $"Còn {HumanDuration(remaining)} để nhận +{s.Settings.RewardMinutesPerKey} phút giải trí";
+        FocusProgressBar.Value = progress;
+        FocusProgressText.Text = $"{Format(progress)} / {Format(target)}";
+
+        var remaining = Math.Max(0, target - progress);
+        HomeFocusRemainingText.Text = focusSessionActive
+            ? $"Focus Session{(string.IsNullOrWhiteSpace(s.ControlPolicy.FocusSessionProfileName) ? "" : " · " + s.ControlPolicy.FocusSessionProfileName)} · còn {HumanDuration(remaining)} Focus thực · hoàn thành nhận key +{Format(s.ControlPolicy.FocusSessionRewardSeconds)}"
+            : remaining == 0
+                ? "Đã đủ điều kiện nhận phần thưởng"
+                : $"Còn {HumanDuration(remaining)} · {_snapshot.CurrentFocusRewardProfileName} → key +{Format(currentRewardSeconds)}";
 
         EntertainmentText.Text = Format(s.EntertainmentBalanceSeconds);
         RewardBalanceText.Text = Format(s.EntertainmentBalanceSeconds);
         LockStateText.Text = s.ClockRollbackDetected
             ? "Đang khóa vì phát hiện thay đổi giờ hệ thống"
-            : s.ControlPolicy.LockedSessionActive
-                ? $"Locked Session · tới {s.ControlPolicy.LockedSessionUntilUtc!.Value.ToLocalTime():HH:mm:ss}"
-                : s.ControlPolicy.WhitelistSessionActive
-                    ? $"Focus-only · tới {s.ControlPolicy.WhitelistSessionUntilUtc!.Value.ToLocalTime():HH:mm:ss}"
-                    : s.EntertainmentBalanceSeconds > 0 ? "Sẵn sàng sử dụng" : "Đang khóa · hãy Focus để nhận thưởng";
-        RewardRuleSummaryText.Text = $"{s.Settings.FocusMinutesPerKey} phút Focus → +{s.Settings.RewardMinutesPerKey} phút giải trí";
+            : s.ControlPolicy.FocusSessionActive
+                ? $"Focus Session · còn {HumanDuration(s.ControlPolicy.FocusSessionRemainingSeconds)} Focus thực"
+                : s.ControlPolicy.LockedSessionActive
+                    ? $"Locked Session · tới {s.ControlPolicy.LockedSessionUntilUtc!.Value.ToLocalTime():HH:mm:ss}"
+                    : s.ControlPolicy.WhitelistSessionActive
+                        ? $"Focus-only · tới {s.ControlPolicy.WhitelistSessionUntilUtc!.Value.ToLocalTime():HH:mm:ss}"
+                        : s.EntertainmentBalanceSeconds > 0 ? "Sẵn sàng sử dụng" : "Đang khóa · hãy Focus để nhận thưởng";
+        RewardRuleSummaryText.Text = _snapshot.CurrentFocusRewardTargetSeconds > 0
+            ? $"{_snapshot.CurrentFocusRewardProfileName}: {Math.Max(1, _snapshot.CurrentFocusRewardTargetSeconds / 60)} phút Focus → +{Math.Max(1, _snapshot.CurrentFocusRewardSecondsPerKey / 60)} phút"
+            : $"Công thức chung: {s.Settings.FocusMinutesPerKey} phút Focus → +{s.Settings.RewardMinutesPerKey} phút";
 
         TotalFocusText.Text = "Focus " + FormatLong(s.TotalFocusSeconds);
         TotalPlayText.Text = "Giải trí " + FormatLong(s.TotalEntertainmentSeconds);
@@ -281,8 +317,9 @@ public partial class MainWindow : Window
         }
 
         var profilesFingerprint = string.Join("|", s.BlockProfiles.OrderBy(p => p.CreatedUtc).Select(p =>
-            $"{p.Id}:{p.Name}:{p.Enabled}:{p.PolicyVersion}:{p.DefaultAccessPolicy}:{p.ScheduledAccessPolicy}:{p.ScheduleEnabled}:{p.WeeklyScheduleMask}:{p.DailyAllowanceMinutes}:{p.AllowanceDateKey}:{p.AllowanceUsedSeconds}:{p.DefaultBlockAction}:" +
-            $"A{s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)}:W{s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)}"));
+            $"{p.Id}:{p.Name}:{p.Enabled}:{p.PolicyVersion}:{p.DefaultAccessPolicy}:{p.ScheduledAccessPolicy}:{p.ScheduleEnabled}:{p.WeeklyScheduleMask}:{p.DailyAllowanceMinutes}:{p.AllowanceDateKey}:{p.AllowanceUsedSeconds}:{p.DailyBudgetMinutes}:{p.EntertainmentUsageDateKey}:{p.EntertainmentUsedSecondsToday}:{p.CooldownEnabled}:{p.CooldownAfterMinutes}:{p.CooldownMinutes}:{p.CooldownProgressSeconds}:{(p.CooldownUntilUtc?.ToString("O") ?? "")}:{p.CooldownRemainingSeconds}:{p.CustomRewardEnabled}:{p.RewardFocusMinutes}:{p.RewardMinutes}:{p.RewardProgressSeconds}:{p.DefaultBlockAction}:" +
+            $"EA{s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)}:EW{s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)}:" +
+            $"FA{s.Apps.Count(a => a.Category == AppCategory.Focus && a.BlockProfileId == p.Id)}:FW{s.BrowserRules.Count(r => r.Category == AppCategory.Focus && r.BlockProfileId == p.Id)}"));
         if (!string.Equals(profilesFingerprint, _profilesFingerprint, StringComparison.Ordinal))
         {
             _profilesFingerprint = profilesFingerprint;
@@ -290,7 +327,9 @@ public partial class MainWindow : Window
             var cards = s.BlockProfiles.OrderBy(p => p.CreatedUtc).Select(p => new ProfileCardViewModel
             {
                 Profile = p,
-                MembershipSummary = $"{s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)} ứng dụng · {s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)} website"
+                MembershipSummary =
+                    $"Giải trí: {s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)} app · {s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)} web · " +
+                    $"Focus: {s.Apps.Count(a => a.Category == AppCategory.Focus && a.BlockProfileId == p.Id)} app · {s.BrowserRules.Count(r => r.Category == AppCategory.Focus && r.BlockProfileId == p.Id)} web"
             }).ToList();
             BlockProfilesItems.ItemsSource = cards;
             ProfilePolicyItems.ItemsSource = cards;
@@ -355,9 +394,10 @@ public partial class MainWindow : Window
         AuditGrid.ItemsSource = s.AuditLog.OrderByDescending(a => a.AtUtc).ToList();
         SessionsGrid.ItemsSource = s.SessionHistory.OrderByDescending(x => x.StartedUtc).Take(100).ToList();
 
-        var newest = keys.FirstOrDefault()?.Code;
-        if (_lastNewestKey is not null && newest is not null && newest != _lastNewestKey)
-            FooterText.Text = $"🎁 Có phần thưởng mới: +{s.Settings.RewardMinutesPerKey} phút giải trí";
+        var newestKey = keys.FirstOrDefault();
+        var newest = newestKey?.Code;
+        if (_lastNewestKey is not null && newestKey is not null && newest != _lastNewestKey)
+            FooterText.Text = $"🎁 Có phần thưởng mới: {newestKey.RewardLabel}";
         _lastNewestKey = newest;
 
         if (!_settingsLoaded && _snapshot.ServiceOnline)
@@ -438,7 +478,9 @@ public partial class MainWindow : Window
 
             _bubble ??= new BubbleWindow();
             if (!_bubble.IsVisible) _bubble.Show();
-            var target = Math.Max(60, state.Settings.FocusMinutesPerKey * 60);
+            var target = _snapshot.CurrentFocusRewardTargetSeconds > 0
+                ? _snapshot.CurrentFocusRewardTargetSeconds
+                : Math.Max(60, state.Settings.FocusMinutesPerKey * 60);
             if (!_snapshot.ServiceOnline)
             {
                 _bubble.Update("⚠ CẦN KIỂM TRA", "--:--", "FocusLock Guard chưa sẵn sàng");
@@ -454,40 +496,115 @@ public partial class MainWindow : Window
                 var profile = fromBrowserFallback ? _snapshot.CurrentBrowserProfile : _snapshot.EntertainmentProfileName;
                 var allowance = fromBrowserFallback ? _snapshot.CurrentBrowserAllowanceRemainingSeconds : _snapshot.EntertainmentAllowanceRemainingSeconds;
                 var wallet = _snapshot.EntertainmentWalletRemainingSeconds;
-                var title = access.Contains("khóa", StringComparison.OrdinalIgnoreCase)
-                    ? "🔒 HẾT THỜI GIAN"
-                    : "🎮 GIẢI TRÍ";
+                var cooldownRemaining = fromBrowserFallback
+                    ? _snapshot.CurrentBrowserCooldownRemainingSeconds
+                    : _snapshot.EntertainmentCooldownRemainingSeconds;
+                var locked = access.Contains("khóa", StringComparison.OrdinalIgnoreCase);
+                var free = access.Contains("tự do", StringComparison.OrdinalIgnoreCase) ||
+                           access.Contains("miễn phí", StringComparison.OrdinalIgnoreCase);
 
+                string title;
                 string timeText;
                 string detail;
-                if (access.Contains("khóa", StringComparison.OrdinalIgnoreCase))
+
+                if (locked)
                 {
-                    timeText = "00:00";
-                    detail = $"{profile} · quyền giải trí hiện đang bị khóa";
-                }
-                else if (access.Contains("tự do", StringComparison.OrdinalIgnoreCase) || access.Contains("miễn phí", StringComparison.OrdinalIgnoreCase))
-                {
-                    timeText = "TỰ DO";
-                    var currentTarget = !string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost) && _snapshot.CurrentBrowserHost != "—"
-                        ? _snapshot.CurrentBrowserHost
-                        : _snapshot.CurrentApp;
-                    detail = $"{profile} · {currentTarget}";
+                    if (cooldownRemaining > 0)
+                    {
+                        title = "⏸ COOLDOWN";
+                        timeText = Format(cooldownRemaining);
+                        detail = $"{profile} · nghỉ bắt buộc trước khi giải trí lại";
+                    }
+                    else
+                    {
+                        title = "🔒 HẾT THỜI GIAN";
+                        timeText = "00:00";
+                        detail = $"{profile} · quyền giải trí hiện đang bị khóa";
+                    }
                 }
                 else
                 {
-                    var remain = fromBrowserFallback
-                        ? access.Contains("allowance", StringComparison.OrdinalIgnoreCase) ? Math.Max(0, allowance) + Math.Max(0, wallet) : Math.Max(0, wallet)
-                        : Math.Max(0, _snapshot.EntertainmentUsableRemainingSeconds);
+                    var dailyBudgetRemaining = fromBrowserFallback
+                        ? _snapshot.CurrentBrowserDailyBudgetRemainingSeconds
+                        : _snapshot.EntertainmentDailyBudgetRemainingSeconds;
+                    var hasDailyBudget = dailyBudgetRemaining != int.MaxValue;
+
+                    // Free skips wallet/allowance payment, but it does NOT bypass
+                    // a configured daily budget.
+                    if (free && !hasDailyBudget)
+                    {
+                        title = "🎮 GIẢI TRÍ";
+                        timeText = "TỰ DO";
+                        var currentTarget = !string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost) && _snapshot.CurrentBrowserHost != "—"
+                            ? _snapshot.CurrentBrowserHost
+                            : _snapshot.CurrentApp;
+                        detail = $"{profile} · {currentTarget}";
+                        _bubble.Update(title, timeText, detail);
+                        return;
+                    }
+
+                    var sourceRemain = free
+                        ? int.MaxValue
+                        : fromBrowserFallback
+                            ? access.Contains("allowance", StringComparison.OrdinalIgnoreCase)
+                                ? SafeUiRemainingSum(allowance, wallet)
+                                : Math.Max(0, wallet)
+                            : Math.Max(0, _snapshot.EntertainmentUsableRemainingSeconds);
+
+                    var remain = hasDailyBudget
+                        ? Math.Min(sourceRemain, Math.Max(0, dailyBudgetRemaining))
+                        : sourceRemain;
+
+                    var warning = Math.Clamp(state.Settings.LockCountdownWarningSeconds, 5, 600);
+                    var critical = Math.Clamp(
+                        state.Settings.LockCountdownCriticalSeconds,
+                        1,
+                        Math.Max(1, warning - 1));
+
+                    if (state.Settings.LockCountdownEnabled && remain <= critical)
+                    {
+                        title = "⚠ KHÓA SAU";
+                        detail = $"{profile} · còn {remain} giây trước khi Guard khóa giải trí";
+                    }
+                    else if (state.Settings.LockCountdownEnabled && remain <= warning)
+                    {
+                        title = "⏳ SẮP KHÓA";
+                        detail = $"{profile} · sắp hết quyền giải trí";
+                    }
+                    else
+                    {
+                        title = "🎮 GIẢI TRÍ";
+                        if (free && hasDailyBudget)
+                        {
+                            detail = $"Ngân sách ngày còn {Format(dailyBudgetRemaining)} · {profile}";
+                        }
+                        else
+                        {
+                            detail = access.Contains("allowance", StringComparison.OrdinalIgnoreCase)
+                                ? $"Allowance {Format(allowance)} + ví {Format(wallet)} · {profile}"
+                                : $"Ví Focus còn {Format(wallet)} · {profile}";
+
+                            if (hasDailyBudget)
+                                detail += $" · trần ngày còn {Format(dailyBudgetRemaining)}";
+                        }
+                    }
+
                     timeText = Format(remain);
-                    detail = access.Contains("allowance", StringComparison.OrdinalIgnoreCase)
-                        ? $"Allowance {Format(allowance)} + ví {Format(wallet)} · {profile}"
-                        : $"Ví Focus còn {Format(wallet)} · {profile}";
                 }
+
                 _bubble.Update(title, timeText, detail);
                 return;
             }
 
-            var focusTime = TimeSpan.FromSeconds(Math.Max(0, target - state.FocusProgressSeconds));
+            var sessionActive = state.ControlPolicy.FocusSessionActive;
+            var focusRemainingSeconds = sessionActive
+                ? Math.Max(0, state.ControlPolicy.FocusSessionRemainingSeconds)
+                : Math.Max(
+                    0,
+                    target - (_snapshot.CurrentFocusRewardTargetSeconds > 0
+                        ? _snapshot.CurrentFocusRewardProgressSeconds
+                        : state.FocusProgressSeconds));
+            var focusTime = TimeSpan.FromSeconds(focusRemainingSeconds);
             var mode = _snapshot.CurrentMode ?? "";
             var browserFocusActive =
                 _snapshot.BrowserForegroundActive &&
@@ -502,10 +619,34 @@ public partial class MainWindow : Window
                 var detailTarget = browserFocusActive && !string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost)
                     ? _snapshot.CurrentBrowserHost
                     : _snapshot.CurrentApp;
-                _bubble.Update(
-                    "● ĐANG TẬP TRUNG",
-                    focusTime,
-                    $"+{state.Settings.RewardMinutesPerKey} phút sau khi đủ phiên · {detailTarget}");
+                var sessionBoundToOtherProfile =
+                    sessionActive &&
+                    !string.IsNullOrWhiteSpace(state.ControlPolicy.FocusSessionProfileId) &&
+                    !string.Equals(
+                        state.ControlPolicy.FocusSessionProfileId,
+                        _snapshot.CurrentFocusRewardProfileId,
+                        StringComparison.Ordinal);
+
+                if (sessionBoundToOtherProfile)
+                {
+                    _bubble.Update(
+                        "⏸ FOCUS SESSION · SAI PROFILE",
+                        focusTime,
+                        $"Phiên cần nguồn Focus thuộc {state.ControlPolicy.FocusSessionProfileName}; hiện tại là {_snapshot.CurrentFocusRewardProfileName}");
+                }
+                else
+                {
+                    var rewardSeconds = _snapshot.CurrentFocusRewardSecondsPerKey > 0
+                        ? _snapshot.CurrentFocusRewardSecondsPerKey
+                        : Math.Max(60, state.Settings.RewardMinutesPerKey * 60);
+
+                    _bubble.Update(
+                        sessionActive ? "● FOCUS SESSION" : "● ĐANG TẬP TRUNG",
+                        focusTime,
+                        sessionActive
+                            ? $"Còn Focus thực · hoàn thành nhận key +{Format(state.ControlPolicy.FocusSessionRewardSeconds)} · {detailTarget}"
+                            : $"{_snapshot.CurrentFocusRewardProfileName} · đủ mốc nhận key +{Format(rewardSeconds)} · {detailTarget}");
+                }
             }
             else
             {
@@ -516,7 +657,10 @@ public partial class MainWindow : Window
                         : mode.Contains("chờ tương tác", StringComparison.OrdinalIgnoreCase)
                             ? "Website cần click/gõ/cuộn hoặc media đang phát"
                             : $"{FriendlyMode(mode, _snapshot.IsIdle)} · {_snapshot.CurrentApp}";
-                _bubble.Update("⏸ TẠM DỪNG", focusTime, pauseReason);
+                _bubble.Update(
+                    sessionActive ? "⏸ FOCUS SESSION TẠM DỪNG" : "⏸ TẠM DỪNG",
+                    focusTime,
+                    sessionActive ? $"Phiên không tiến · {pauseReason}" : pauseReason);
             }
         }
         catch (Exception ex)
@@ -703,7 +847,24 @@ public partial class MainWindow : Window
                 ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = member.Id, BlockProfileId = otherProfile.Id }));
             }
         }
-        FooterText.Text = $"Đã lưu Profile {editor.EditedProfile.Name} và thành viên App/Website.";
+
+        foreach (var source in editor.FocusAppSources)
+        {
+            if (source.IsMember)
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = source.Id, BlockProfileId = profile.Id }));
+            else if (source.WasMember)
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = source.Id, BlockProfileId = "" }));
+        }
+
+        foreach (var source in editor.FocusWebsiteSources)
+        {
+            if (source.IsMember)
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = source.Id, BlockProfileId = profile.Id }));
+            else if (source.WasMember)
+                ApplyResponse(await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = source.Id, BlockProfileId = "" }));
+        }
+
+        FooterText.Text = $"Đã lưu Profile {editor.EditedProfile.Name}: chính sách, giải trí và nguồn Focus.";
     }
 
     private async void CycleProfileMode_Click(object sender, RoutedEventArgs e)
@@ -818,8 +979,7 @@ public partial class MainWindow : Window
                 SettingsChallengeColoredPreview.Inlines.Add(
                     new Run(VisibleChar(expected[i]))
                     {
-                        Foreground = System.Windows.Media.Brushes.DarkGray,
-                    });
+                        Foreground = System.Windows.Media.Brushes.DarkGray,});
                 continue;
             }
 
@@ -1027,6 +1187,202 @@ public partial class MainWindow : Window
         FooterText.Text = response.Message;
     }
 
+    private async void StartFocusSessionPreset_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag } ||
+            !int.TryParse(tag, out var minutes))
+            return;
+
+        await StartFocusSessionAsync(minutes);
+    }
+
+    private async void StartFocusSessionCustom_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryPositiveInt(FocusSessionMinutesBox.Text, out var minutes) ||
+            minutes < 5 || minutes > 1440)
+        {
+            MessageBox.Show(this, "Focus Session tùy chỉnh phải từ 5 đến 1440 phút.", "Focus Session");
+            return;
+        }
+
+        await StartFocusSessionAsync(minutes);
+    }
+
+    private async Task StartFocusSessionAsync(int minutes)
+    {
+        if (_snapshot is null) return;
+
+        var option = FocusSessionProfileCombo.SelectedItem as FocusSessionProfileOption;
+        var rewardProfile = option?.Profile;
+        var rewardSeconds = FocusSessionRewardCalculator.CalculateRewardSeconds(
+            minutes,
+            _snapshot.State.Settings,
+            rewardProfile);
+
+        var sourceLine = rewardProfile is null
+            ? "• Nguồn: mọi app/website Focus hợp lệ · dùng công thức chung."
+            : $"• Nguồn: chỉ app/website Focus thuộc Profile {rewardProfile.Name}.";
+
+        var formulaLine = rewardProfile is { CustomRewardEnabled: true }
+            ? $"• Công thức: {rewardProfile.RewardFocusMinutes} phút Focus → +{rewardProfile.RewardMinutes} phút."
+            : $"• Công thức: {_snapshot.State.Settings.FocusMinutesPerKey} phút Focus → +{_snapshot.State.Settings.RewardMinutesPerKey} phút.";
+
+        var confirm = MessageBox.Show(
+            this,
+            $"Bắt đầu Focus Session {minutes} phút?\n\n" +
+            sourceLine + "\n" +
+            formulaLine + "\n" +
+            $"• Chỉ GIÂY FOCUS HỢP LỆ mới làm phiên tiến lên.\n" +
+            $"• App giải trí đã khai báo bị khóa.\n" +
+            $"• Browser chỉ cho website Học/Làm việc.\n" +
+            $"• Idle hoặc nguồn Focus sai Profile → phiên tạm dừng tiến độ.\n" +
+            $"• Hoàn thành → tạo key thưởng +{Format(rewardSeconds)}.\n" +
+            $"• Bỏ giữa chừng → không có thưởng.",
+            "Bắt đầu Focus Session",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "startFocusSession",
+            DurationMinutes = minutes,
+            BlockProfileId = option?.Id ?? ""
+        });
+
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+
+        if (!response.Ok)
+            MessageBox.Show(this, response.Message, "Không thể bắt đầu Focus Session",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private async void AbandonFocusSession_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snapshot?.State.ControlPolicy.FocusSessionActive != true) return;
+
+        var policy = _snapshot.State.ControlPolicy;
+        var confirm = MessageBox.Show(
+            this,
+            $"Bỏ Focus Session hiện tại?\n\n" +
+            $"Tiến độ: {Format(policy.FocusSessionQualifiedSeconds)} / {Format(policy.FocusSessionTargetSeconds)}\n" +
+            "Phiên chưa hoàn thành sẽ KHÔNG tạo phần thưởng.",
+            "Bỏ Focus Session",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var response = await _client.SendAsync(new PipeRequest
+        {
+            Command = "abandonFocusSession"
+        });
+
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
+    private void FocusSessionMinutesBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        RefreshFocusSessionRewardPreview();
+    }
+
+    private void FocusSessionProfileCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RefreshFocusSessionRewardPreview();
+    }
+
+    private void RefreshFocusSessionProfileOptions(AppState state)
+    {
+        if (FocusSessionProfileCombo is null) return;
+
+        var fingerprint =
+            $"{state.Settings.FocusMinutesPerKey}:{state.Settings.RewardMinutesPerKey}|" +
+            string.Join(
+                "|",
+                state.BlockProfiles
+                    .Where(p => p.Enabled)
+                    .OrderBy(p => p.CreatedUtc)
+                    .Select(p =>
+                        $"{p.Id}:{p.Name}:{p.CustomRewardEnabled}:{p.RewardFocusMinutes}:{p.RewardMinutes}:" +
+                        $"{state.Apps.Count(a => a.Category == AppCategory.Focus && a.BlockProfileId == p.Id)}:" +
+                        $"{state.BrowserRules.Count(r => r.Category == AppCategory.Focus && r.BlockProfileId == p.Id)}"));
+
+        if (fingerprint == _focusSessionProfileFingerprint &&
+            FocusSessionProfileCombo.ItemsSource is not null)
+            return;
+
+        _focusSessionProfileFingerprint = fingerprint;
+        var previousId = (FocusSessionProfileCombo.SelectedItem as FocusSessionProfileOption)?.Id ?? "";
+
+        var options = new List<FocusSessionProfileOption>
+        {
+            new()
+            {
+                Id = "",
+                Profile = null,
+                Label = $"Toàn bộ Focus · công thức chung {state.Settings.FocusMinutesPerKey}→+{state.Settings.RewardMinutesPerKey} phút"
+            }
+        };
+
+        options.AddRange(
+            state.BlockProfiles
+                .Where(p => p.Enabled)
+                .OrderBy(p => p.CreatedUtc)
+                .Select(p =>
+                {
+                    var focusCount =
+                        state.Apps.Count(a => a.Category == AppCategory.Focus && a.BlockProfileId == p.Id) +
+                        state.BrowserRules.Count(r => r.Category == AppCategory.Focus && r.BlockProfileId == p.Id);
+                    var formula = p.CustomRewardEnabled
+                        ? $"{p.RewardFocusMinutes}→+{p.RewardMinutes} phút"
+                        : $"chung {state.Settings.FocusMinutesPerKey}→+{state.Settings.RewardMinutesPerKey}";
+                    return new FocusSessionProfileOption
+                    {
+                        Id = p.Id,
+                        Profile = p,
+                        Label = $"{p.Name} · {formula} · {focusCount} nguồn Focus"
+                    };
+                }));
+
+        FocusSessionProfileCombo.ItemsSource = options;
+
+        var wantedId = state.ControlPolicy.FocusSessionActive
+            ? state.ControlPolicy.FocusSessionProfileId
+            : previousId;
+
+        FocusSessionProfileCombo.SelectedItem =
+            options.FirstOrDefault(x => x.Id == wantedId) ?? options[0];
+    }
+
+    private void RefreshFocusSessionRewardPreview()
+    {
+        if (FocusSessionPresetRewardPreviewText is null || _snapshot is null) return;
+
+        var settings = _snapshot.State.Settings;
+        var option = FocusSessionProfileCombo?.SelectedItem as FocusSessionProfileOption;
+        var profile = option?.Profile;
+
+        var r25 = FocusSessionRewardCalculator.CalculateRewardSeconds(25, settings, profile);
+        var r50 = FocusSessionRewardCalculator.CalculateRewardSeconds(50, settings, profile);
+        var r90 = FocusSessionRewardCalculator.CalculateRewardSeconds(90, settings, profile);
+
+        var custom = TryPositiveInt(FocusSessionMinutesBox?.Text ?? "", out var customMinutes) &&
+                     customMinutes >= 5 && customMinutes <= 1440
+            ? $" · Tùy chỉnh {customMinutes}p → +{Format(FocusSessionRewardCalculator.CalculateRewardSeconds(customMinutes, settings, profile))}"
+            : "";
+
+        var focusMinutes = FocusSessionRewardCalculator.ResolveFocusMinutes(profile, settings);
+        var rewardMinutes = FocusSessionRewardCalculator.ResolveRewardMinutes(profile, settings);
+        var source = profile is null ? "Toàn bộ Focus" : profile.Name;
+
+        FocusSessionPresetRewardPreviewText.Text =
+            $"{source} · tỷ lệ {focusMinutes}p Focus → +{rewardMinutes}p: " +
+            $"25p → +{Format(r25)} · 50p → +{Format(r50)} · 90p → +{Format(r90)}{custom}";
+    }
+
     private async void StartLockedSession_Click(object sender, RoutedEventArgs e)
     {
         if (!TryPositiveInt(LockedSessionMinutesBox.Text, out var minutes) || minutes > 1440)
@@ -1128,9 +1484,52 @@ public partial class MainWindow : Window
         EnableStrictButton.IsEnabled = !policy.StrictModeEnabled;
         RequestStrictUnlockButton.IsEnabled = policy.StrictModeEnabled && policy.StrictUnlockRequestedUtc is null;
         DisableStrictButton.IsEnabled = policy.StrictUnlockReady;
-        var configurationLocked = policy.SettingsProtectionActive || policy.StrictModeEnabled || policy.LockedSessionActive || policy.WhitelistSessionActive;
+        RefreshFocusSessionProfileOptions(state);
+
+        var focusSessionActive = policy.FocusSessionActive;
+        var configurationLocked = policy.SettingsProtectionActive || policy.StrictModeEnabled || focusSessionActive || policy.LockedSessionActive || policy.WhitelistSessionActive;
         BasicSettingsPanel.IsEnabled = !configurationLocked;
         ProfilePolicyItems.IsEnabled = !configurationLocked;
+        var cooldownRestoreLocked = state.BlockProfiles.Any(x => x.CooldownActive);
+        RestoreBackupButton.IsEnabled = !configurationLocked && !cooldownRestoreLocked;
+        RestoreBackupButton.ToolTip = cooldownRestoreLocked
+            ? "Restore bị khóa khi một Profile đang Cooldown."
+            : configurationLocked
+                ? "Restore bị khóa trong khi FocusLock đang có chế độ bảo vệ/cam kết không thể thay đổi."
+                : "Khôi phục toàn bộ dữ liệu từ file .focuslockbackup.";
+
+        if (focusSessionActive)
+        {
+            var targetSeconds = Math.Max(1, policy.FocusSessionTargetSeconds);
+            var qualifiedSeconds = Math.Clamp(policy.FocusSessionQualifiedSeconds, 0, targetSeconds);
+            var remain = Math.Max(0, targetSeconds - qualifiedSeconds);
+
+            var sessionProfile = string.IsNullOrWhiteSpace(policy.FocusSessionProfileName)
+                ? "Toàn bộ Focus"
+                : policy.FocusSessionProfileName;
+            FocusSessionStatusText.Text =
+                $"● Đang chạy · {sessionProfile} · còn {HumanDuration(remain)} Focus thực";
+            FocusSessionProgressBar.Maximum = targetSeconds;
+            FocusSessionProgressBar.Value = qualifiedSeconds;
+            FocusSessionProgressDetailText.Text =
+                $"{Format(qualifiedSeconds)} / {Format(targetSeconds)}";
+            FocusSessionRewardText.Text =
+                $"Hoàn thành → key +{Format(policy.FocusSessionRewardSeconds)}";
+            FocusSessionStartPanel.IsEnabled = false;
+            AbandonFocusSessionButton.IsEnabled = true;
+        }
+        else
+        {
+            FocusSessionStatusText.Text = "○ Chưa có Focus Session";
+            FocusSessionProgressBar.Maximum = 1;
+            FocusSessionProgressBar.Value = 0;
+            FocusSessionProgressDetailText.Text = "00:00 / 00:00";
+            FocusSessionRewardText.Text = "Hoàn thành sẽ tạo key thưởng";
+            FocusSessionStartPanel.IsEnabled = true;
+            AbandonFocusSessionButton.IsEnabled = false;
+        }
+
+        RefreshFocusSessionRewardPreview();
 
         LockedSessionStatusText.Text = policy.LockedSessionUntilUtc is DateTime lockedUntil && lockedUntil > now
             ? $"🔒 Đang khóa tới {lockedUntil.ToLocalTime():dd/MM HH:mm:ss} · còn {HumanDuration((int)Math.Ceiling((lockedUntil - now).TotalSeconds))}"
@@ -1251,12 +1650,11 @@ public partial class MainWindow : Window
         }
 
         var type = GetBrowserMatchType();
-        BrowserRulePatternBox.Text = type switch
-        {
-            BrowserRuleMatchType.HostSuffix => _snapshot.CurrentBrowserHost == "—" ? "" : _snapshot.CurrentBrowserHost,
-            BrowserRuleMatchType.TitleContains => _snapshot.CurrentBrowserTitle == "—" ? "" : _snapshot.CurrentBrowserTitle,
-            _ => _snapshot.CurrentBrowserUrl
-        };
+        BrowserRulePatternBox.Text = BrowserRuleUrlHelper.PatternFromCurrentPage(
+            type,
+            _snapshot.CurrentBrowserUrl,
+            _snapshot.CurrentBrowserHost,
+            _snapshot.CurrentBrowserTitle);
         if (string.IsNullOrWhiteSpace(BrowserRuleNameBox.Text))
             BrowserRuleNameBox.Text = _snapshot.CurrentBrowserHost == "—" ? _snapshot.CurrentBrowserTitle : _snapshot.CurrentBrowserHost;
     }
@@ -1307,10 +1705,10 @@ public partial class MainWindow : Window
 
     private void OpenExtensionFolder_Click(object sender, RoutedEventArgs e)
     {
-        var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "BrowserExtension"));
+        var path = Path.Combine(OneDirBootstrapper.GetRootDirectory(), "BrowserExtension");
         if (!Directory.Exists(path))
         {
-            MessageBox.Show(this, "Không tìm thấy BrowserExtension cạnh thư mục App. Hãy chạy CAI_DAT.bat lại.", "FocusLock");
+            MessageBox.Show(this, "Không tìm thấy BrowserExtension trong thư mục FocusLock OneDir.", "FocusLock");
             return;
         }
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
@@ -1334,6 +1732,125 @@ public partial class MainWindow : Window
         ApplyResponse(response);
     }
 
+    // Backup / Restore ------------------------------------------------------------
+    private async void CreateBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Tạo FocusLock Backup",
+            Filter = "FocusLock Backup (*.focuslockbackup)|*.focuslockbackup|All files (*.*)|*.*",
+            DefaultExt = ".focuslockbackup",
+            AddExtension = true,
+            FileName = $"FocusLock-Backup-{DateTime.Now:yyyyMMdd-HHmmss}.focuslockbackup"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        try
+        {
+            CreateBackupButton.IsEnabled = false;
+            BackupRestoreStatusText.Text = "Đang tạo backup…";
+            var response = await _client.SendAsync(new PipeRequest
+            {
+                Command = "createBackup",
+                FilePath = dialog.FileName
+            });
+            ApplyResponse(response);
+            BackupRestoreStatusText.Text = response.Ok
+                ? $"✓ Backup thành công · {dialog.FileName}"
+                : $"✕ Backup thất bại · {response.Message}";
+            FooterText.Text = response.Message;
+            if (response.Ok)
+                MessageBox.Show(this, "Đã tạo backup thành công. Hãy giữ file .focuslockbackup ở nơi riêng tư.", "FocusLock Backup", MessageBoxButton.OK, MessageBoxImage.Information);
+            else
+                MessageBox.Show(this, response.Message, "Không thể tạo Backup", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            AppCrashLogger.Exception("CreateBackup", ex);
+            BackupRestoreStatusText.Text = "✕ Backup thất bại.";
+            MessageBox.Show(this, ex.Message, "Không thể tạo Backup", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            CreateBackupButton.IsEnabled = true;
+        }
+    }
+
+    private async void RestoreBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Restore FocusLock Backup",
+            Filter = "FocusLock Backup (*.focuslockbackup)|*.focuslockbackup|All files (*.*)|*.*",
+            DefaultExt = ".focuslockbackup",
+            Multiselect = false,
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        var confirm = MessageBox.Show(
+            this,
+            "Restore sẽ thay toàn bộ dữ liệu FocusLock bằng dữ liệu trong file backup, gồm Profile, app/website, cài đặt, phần thưởng, thống kê và trạng thái bảo vệ.\n\nFocusLock sẽ tự tạo một safety backup của dữ liệu hiện tại trước khi thay thế.\n\nTiếp tục Restore?",
+            "Xác nhận Restore",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        try
+        {
+            RestoreBackupButton.IsEnabled = false;
+            BackupRestoreStatusText.Text = "Đang kiểm tra và Restore backup…";
+            var response = await _client.SendAsync(new PipeRequest
+            {
+                Command = "restoreBackup",
+                FilePath = dialog.FileName
+            });
+
+            if (response.Ok)
+            {
+                // Force all restored settings to repaint even if this window was already loaded.
+                _settingsLoaded = false;
+                _appsFingerprint = "";
+                _profilesFingerprint = "";
+                _profilePolicyFingerprint = "";
+                _rulesFingerprint = "";
+                _keysFingerprint = "";
+                _focusSessionProfileFingerprint = "";
+            }
+            ApplyResponse(response);
+            BackupRestoreStatusText.Text = response.Ok
+                ? "✓ Restore thành công · dữ liệu đã được nạp lại."
+                : $"✕ Restore bị từ chối · {response.Message}";
+            FooterText.Text = response.Message;
+
+            MessageBox.Show(
+                this,
+                response.Message,
+                response.Ok ? "Restore hoàn tất" : "Không thể Restore",
+                MessageBoxButton.OK,
+                response.Ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            AppCrashLogger.Exception("RestoreBackup", ex);
+            BackupRestoreStatusText.Text = "✕ Restore thất bại; dữ liệu hiện tại được giữ nguyên hoặc đã rollback bằng safety backup.";
+            MessageBox.Show(this, ex.Message, "Restore thất bại", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (_snapshot is not null)
+            {
+                var p = _snapshot.State.ControlPolicy;
+                RestoreBackupButton.IsEnabled = !(p.SettingsProtectionActive || p.StrictModeEnabled || p.FocusSessionActive || p.LockedSessionActive || p.WhitelistSessionActive || _snapshot.State.BlockProfiles.Any(x => x.CooldownActive));
+            }
+            else
+            {
+                RestoreBackupButton.IsEnabled = true;
+            }
+        }
+    }
+
     // Settings --------------------------------------------------------------------
     private async void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
@@ -1348,7 +1865,9 @@ public partial class MainWindow : Window
             !TryPositiveInt(StreakGoalBox.Text, out var streakGoal) ||
             !TryPositiveInt(RetentionDaysBox.Text, out var retentionDays) ||
             !TryPositiveInt(SessionLimitBox.Text, out var sessionLimit) ||
-            !TryPositiveInt(BrowserContextTimeoutBox.Text, out var browserTimeout))
+            !TryPositiveInt(BrowserContextTimeoutBox.Text, out var browserTimeout) ||
+            !TryPositiveInt(LockCountdownWarningBox.Text, out var countdownWarning) ||
+            !TryPositiveInt(LockCountdownCriticalBox.Text, out var countdownCritical))
         {
             MessageBox.Show(this, "Các thông số phải là số nguyên dương.", "FocusLock");
             return;
@@ -1357,6 +1876,18 @@ public partial class MainWindow : Window
         if (expiryHours < 24 || expiryHours > int.MaxValue / 60)
         {
             MessageBox.Show(this, "Thời hạn key tối thiểu là 24 giờ.", "FocusLock");
+            return;
+        }
+
+        if (countdownWarning < 5 || countdownWarning > 600)
+        {
+            MessageBox.Show(this, "Countdown cảnh báo phải từ 5 đến 600 giây.", "FocusLock");
+            return;
+        }
+
+        if (countdownCritical < 1 || countdownCritical >= countdownWarning)
+        {
+            MessageBox.Show(this, "Mốc cảnh báo đỏ phải từ 1 giây và nhỏ hơn mốc cảnh báo.", "FocusLock");
             return;
         }
 
@@ -1373,6 +1904,9 @@ public partial class MainWindow : Window
             ClockRollbackToleranceSeconds = clockTolerance,
             VerifyExecutableHash = VerifyHashCheck.IsChecked == true,
             BubbleEnabled = BubbleEnabledCheck.IsChecked == true,
+            LockCountdownEnabled = LockCountdownEnabledCheck.IsChecked == true,
+            LockCountdownWarningSeconds = countdownWarning,
+            LockCountdownCriticalSeconds = countdownCritical,
             StartWithWindows = StartWithWindowsCheck.IsChecked == true,
             MinimizeToTray = MinimizeToTrayCheck.IsChecked == true,
             StreakMinimumFocusMinutes = streakGoal,
@@ -1406,6 +1940,10 @@ public partial class MainWindow : Window
         AntiCheatCheck.IsChecked = s.AntiCheatEnabled;
         VerifyHashCheck.IsChecked = s.VerifyExecutableHash;
         BubbleEnabledCheck.IsChecked = s.BubbleEnabled;
+        LockCountdownEnabledCheck.IsChecked = s.LockCountdownEnabled;
+        LockCountdownWarningBox.Text = Math.Clamp(s.LockCountdownWarningSeconds, 5, 600).ToString();
+        var critical = Math.Clamp(s.LockCountdownCriticalSeconds, 1, Math.Max(1, s.LockCountdownWarningSeconds - 1));
+        LockCountdownCriticalBox.Text = critical.ToString();
         StartWithWindowsCheck.IsChecked = s.StartWithWindows;
         MinimizeToTrayCheck.IsChecked = s.MinimizeToTray;
         BrowserRulesEnabledCheck.IsChecked = s.BrowserRulesEnabled;
@@ -1563,6 +2101,9 @@ public partial class MainWindow : Window
         IdleThresholdSeconds = s.IdleThresholdSeconds,
         MaxEntertainmentMinutes = s.MaxEntertainmentMinutes,
         BubbleEnabled = s.BubbleEnabled,
+        LockCountdownEnabled = s.LockCountdownEnabled,
+        LockCountdownWarningSeconds = s.LockCountdownWarningSeconds,
+        LockCountdownCriticalSeconds = s.LockCountdownCriticalSeconds,
         StartWithWindows = s.StartWithWindows,
         MinimizeToTray = s.MinimizeToTray,
         AntiCheatEnabled = s.AntiCheatEnabled,
@@ -1579,6 +2120,12 @@ public partial class MainWindow : Window
     };
 
     private static bool TryPositiveInt(string text, out int value) => int.TryParse(text, out value) && value > 0;
+    private static int SafeUiRemainingSum(int left, int right)
+    {
+        var sum = (long)Math.Max(0, left) + Math.Max(0, right);
+        return sum >= int.MaxValue ? int.MaxValue : (int)sum;
+    }
+
     private static string Format(int seconds) => TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(seconds >= 3600 ? @"hh\:mm\:ss" : @"mm\:ss");
 
     private static string FormatLong(long seconds)

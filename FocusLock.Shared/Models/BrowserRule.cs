@@ -1,11 +1,12 @@
-namespace FocusLock.Shared.Models;
+﻿namespace FocusLock.Shared.Models;
 
 public enum BrowserRuleMatchType
 {
     HostSuffix,
     UrlPrefix,
     UrlContains,
-    TitleContains
+    TitleContains,
+    ExactUrl
 }
 
 public sealed class BrowserRule
@@ -29,9 +30,14 @@ public sealed class BrowserRule
         BrowserRuleMatchType.UrlPrefix => "URL bắt đầu bằng",
         BrowserRuleMatchType.UrlContains => "URL chứa",
         BrowserRuleMatchType.TitleContains => "Tiêu đề chứa",
+        BrowserRuleMatchType.ExactUrl => "Chính xác URL",
         _ => MatchType.ToString()
     };
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? Pattern : Name;
-    public string BlockProfileLabel => string.IsNullOrWhiteSpace(BlockProfileName) ? "Giải trí chung" : BlockProfileName;
+    public string BlockProfileLabel => Category == AppCategory.Focus
+        ? string.IsNullOrWhiteSpace(BlockProfileId)
+            ? "Công thức chung"
+            : string.IsNullOrWhiteSpace(BlockProfileName) ? "Profile Focus" : BlockProfileName
+        : string.IsNullOrWhiteSpace(BlockProfileName) ? "Giải trí chung" : BlockProfileName;
 }

@@ -30,4 +30,7 @@ public sealed class PipeRequest
     public string? TextValue { get; set; }
     public DateTime? StartUtc { get; set; }
     public DateTime? UntilUtc { get; set; }
+
+    // V7.7.8 Backup / Restore. The desktop app chooses the path; Guard performs the signed state operation.
+    public string? FilePath { get; set; }
 }

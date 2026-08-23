@@ -9,7 +9,7 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="Profile Center" FontSize="28" FontWeight="Bold"/>
-                <TextBlock Text="Quản lý App + Website giải trí theo Profile. Đây là nơi chính để đặt policy, allowance, lịch tuần và cách khóa." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="Profile quản lý cả mục giải trí lẫn nguồn Focus. Tại đây bạn đặt policy, ngân sách, lịch, cách khóa và công thức thưởng riêng." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBox x:Name="NewProfileNameBox" Width="180" ToolTip="Tên profile mới"/>
@@ -41,8 +41,47 @@
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource PrimaryButton}" Content="Chỉnh chính sách" Click="EditSelected_Click" Margin="0,0,6,0"/><Button Content="Bật/Tắt" Click="ToggleSelected_Click" Margin="0,0,6,0"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" Click="DeleteSelected_Click"/></StackPanel>
                         </DockPanel>
 
+                        <Border Background="#EEF6FF"
+                                BorderBrush="#CFE2FA"
+                                BorderThickness="1"
+                                CornerRadius="12"
+                                Padding="12"
+                                Margin="0,16,0,0">
+                            <DockPanel LastChildFill="True">
+                                <StackPanel DockPanel.Dock="Left" Margin="0,0,18,0">
+                                    <TextBlock Text="QUICK ADD GIẢI TRÍ · THÊM THẲNG VÀO PROFILE NÀY"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               FontSize="11"
+                                               FontWeight="Bold"/>
+                                    <TextBlock x:Name="QuickAddContextText"
+                                               Text="FocusLock sẽ lấy app vừa dùng hoặc website đang mở."
+                                               Foreground="{StaticResource MutedBrush}"
+                                               FontSize="11.5"
+                                               TextWrapping="Wrap"
+                                               Margin="0,3,0,0"/>
+                                </StackPanel>
+
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button Content="+ App vừa dùng"
+                                            Click="QuickAddLastApp_Click"
+                                            Margin="0,0,7,0"/>
+                                    <ComboBox x:Name="QuickWebsiteScopeCombo"
+                                              Width="155"
+                                              SelectedIndex="0"
+                                              Margin="0,0,7,0">
+                                        <ComboBoxItem Content="Cả website" Tag="HostSuffix"/>
+                                        <ComboBoxItem Content="URL bắt đầu" Tag="UrlPrefix"/>
+                                        <ComboBoxItem Content="Chính xác URL" Tag="ExactUrl"/>
+                                    </ComboBox>
+                                    <Button Style="{StaticResource PrimaryButton}"
+                                            Content="+ Website đang mở"
+                                            Click="QuickAddCurrentWebsite_Click"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
                         <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="0,0,7,0"><StackPanel><TextBlock Text="CHÍNH SÁCH" Foreground="{StaticResource MutedBrush}" FontSize="11" FontWeight="Bold"/><TextBlock x:Name="PolicyText" Text="—" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0"/><TextBlock x:Name="ScheduleText" Text="—" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/><TextBlock x:Name="AllowanceText" Text="—" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/></StackPanel></Border>
+                            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="0,0,7,0"><StackPanel><TextBlock Text="CHÍNH SÁCH" Foreground="{StaticResource MutedBrush}" FontSize="11" FontWeight="Bold"/><TextBlock x:Name="PolicyText" Text="—" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0"/><TextBlock x:Name="ScheduleText" Text="—" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/><TextBlock x:Name="AllowanceText" Text="—" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/><TextBlock x:Name="DailyBudgetText" Text="—" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0"/><TextBlock x:Name="CooldownText" Text="—" Foreground="#6F5CC2" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0"/><TextBlock x:Name="RewardPolicyText" Text="—" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Border>
                             <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="7,0,0,0"><StackPanel><TextBlock Text="CÁCH KHÓA APP" Foreground="{StaticResource MutedBrush}" FontSize="11" FontWeight="Bold"/><TextBlock x:Name="BlockActionText" Text="—" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock Text="Website luôn bị khóa ngay trên tab; không đóng tab và tự mở khóa khi Profile cho phép trở lại." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Border>
                         </Grid>
 
@@ -57,8 +96,8 @@
                                     <DockPanel Margin="0,0,0,10">
                                         <TextBlock x:Name="AppsHeaderText" Text="Ứng dụng giải trí" FontWeight="Bold" VerticalAlignment="Center"/>
                                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                            <Button Content="+ App đang chạy" Click="AddRunningApp_Click" Margin="0,0,6,0"/>
-                                            <Button Content="+ Chọn .exe" Click="AddExeApp_Click"/>
+                                            <Button Content="Chọn từ app đang chạy" Click="AddRunningApp_Click" Margin="0,0,6,0"/>
+                                            <Button Content="Chọn file .exe" Click="AddExeApp_Click"/>
                                         </StackPanel>
                                     </DockPanel>
                                     <TextBlock Text="Thêm trực tiếp vào Profile này. App đã có ở Profile khác sẽ được chuyển sang đây."
@@ -70,19 +109,26 @@
                             <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="7,0,0,0">
                                 <StackPanel>
                                     <TextBlock x:Name="WebHeaderText" Text="Website giải trí" FontWeight="Bold"/>
-                                    <TextBlock Text="Nhập domain như youtube.com, genk.vn... hoặc lấy website đang mở."
+                                    <TextBlock Text="Chọn phạm vi trước. Rule cụ thể sẽ thắng rule domain rộng hơn."
                                                Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,5,0,8"/>
+                                    <ComboBox x:Name="WebsiteScopeCombo" SelectedIndex="0" Margin="0,0,0,7">
+                                        <ComboBoxItem Content="Cả website / domain" Tag="HostSuffix"/>
+                                        <ComboBoxItem Content="URL bắt đầu bằng" Tag="UrlPrefix"/>
+                                        <ComboBoxItem Content="Chính xác trang / URL" Tag="ExactUrl"/>
+                                    </ComboBox>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBox x:Name="NewWebsiteBox" ToolTip="Ví dụ youtube.com"/>
-                                        <Button Grid.Column="1" Content="+ Thêm" Click="AddWebsite_Click" Margin="7,0,0,0"/>
+                                        <TextBox x:Name="NewWebsiteBox" ToolTip="Domain hoặc URL theo phạm vi đã chọn"/>
+                                        <Button Grid.Column="1" Content="+ Thêm vào Profile" Click="AddWebsite_Click" Margin="7,0,0,0"/>
                                     </Grid>
-                                    <Button Content="Dùng website đang mở" Click="UseCurrentWebsite_Click"
-                                            HorizontalAlignment="Left" Margin="0,7,0,10"/>
-                                    <ListBox x:Name="WebMembersList" Height="220"/>
+                                    <Button Content="Lấy website đang mở" Click="UseCurrentWebsite_Click"
+                                            HorizontalAlignment="Left" Margin="0,7,0,4"/>
+                                    <TextBlock Text="Ví dụ: youtube.com = Giải trí; một URL/kênh cụ thể có thể được phân loại riêng ở trang Website."
+                                               Foreground="{StaticResource MutedBrush}" FontSize="10.8" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                    <ListBox x:Name="WebMembersList" Height="205"/>
                                 </StackPanel>
                             </Border>
                         </Grid>

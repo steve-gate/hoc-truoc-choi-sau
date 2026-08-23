@@ -8,6 +8,20 @@ public sealed class ServiceSnapshot
     public string ServiceStatus { get; set; } = "Guard đang chạy";
     public string CurrentMode { get; set; } = "Sẵn sàng";
     public string CurrentApp { get; set; } = "—";
+
+    // V7.7.6: reward context selected by the current Focus source.
+    // Empty ProfileId means the global reward formula is active.
+    public string CurrentFocusRewardProfileId { get; set; } = "";
+    public string CurrentFocusRewardProfileName { get; set; } = "Công thức chung";
+    public int CurrentFocusRewardProgressSeconds { get; set; }
+    public int CurrentFocusRewardTargetSeconds { get; set; }
+    public int CurrentFocusRewardSecondsPerKey { get; set; }
+
+    // V7.7.5 Quick Add: last foreground executable that was NOT FocusLock itself.
+    // Kept only in Guard runtime; no user activity history is persisted.
+    public string LastExternalAppName { get; set; } = "—";
+    public string LastExternalAppPath { get; set; } = "";
+
     public bool IsIdle { get; set; }
     public int ActivityEventsLastMinute { get; set; }
     public bool HeartbeatHealthy { get; set; }
@@ -23,6 +37,8 @@ public sealed class ServiceSnapshot
     public string CurrentBrowserProfile { get; set; } = "—";
     public string CurrentBrowserAccess { get; set; } = "—";
     public int CurrentBrowserAllowanceRemainingSeconds { get; set; }
+    public int CurrentBrowserDailyBudgetRemainingSeconds { get; set; } = int.MaxValue;
+    public int CurrentBrowserCooldownRemainingSeconds { get; set; }
     public bool BrowserForegroundActive { get; set; }
 
     // V7.4: explicit entertainment session state for the always-on bubble.
@@ -32,6 +48,8 @@ public sealed class ServiceSnapshot
     public string EntertainmentProfileName { get; set; } = "—";
     public int EntertainmentAllowanceRemainingSeconds { get; set; }
     public int EntertainmentWalletRemainingSeconds { get; set; }
+    public int EntertainmentDailyBudgetRemainingSeconds { get; set; } = int.MaxValue;
+    public int EntertainmentCooldownRemainingSeconds { get; set; }
     public int EntertainmentUsableRemainingSeconds { get; set; }
 
     // V7 Website Focus 2.0 diagnostics.

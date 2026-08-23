@@ -23,9 +23,8 @@ public static class LegacyStateReader
     private static IEnumerable<string> CandidateFiles()
     {
         // Portable/code-folder legacy state (if a user manually places an old state.json in Data).
-        var appDir = new DirectoryInfo(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
-        if (appDir.Name.Equals("App", StringComparison.OrdinalIgnoreCase) && appDir.Parent is not null)
-            yield return Path.Combine(appDir.Parent.FullName, "Data", "state.json");
+        var root = OneDirBootstrapper.GetRootDirectory();
+        yield return Path.Combine(root, "Data", "state.json");
 
         // Original MVP location.
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FocusLock", "state.json");

@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using FocusLock.App.Services;
 using FocusLock.Shared.Models;
 using FocusLock.Shared.Protocol;
+using FocusLock.Shared.Utilities;
 
 namespace FocusLock.App;
 
@@ -45,14 +46,16 @@ public partial class ProfileCenterWindow : Window
             Profile = p,
             Name = p.Name,
             Status = p.StatusLabel,
-            Members = $"{s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)} app · {s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)} website",
+            Members =
+                $"Giải trí {s.Apps.Count(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)} app/{s.BrowserRules.Count(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)} web · " +
+                $"Focus {s.Apps.Count(a => a.Category == AppCategory.Focus && a.BlockProfileId == p.Id)} app/{s.BrowserRules.Count(r => r.Category == AppCategory.Focus && r.BlockProfileId == p.Id)} web",
             ShortPolicy = p.PolicySummary
         }).ToList();
 
         ProfilesList.ItemsSource = rows;
         ProfilesList.SelectedItem = rows.FirstOrDefault(x => x.Profile.Id == selectProfileId) ?? rows.FirstOrDefault();
         RenderSelected();
-        StatusText.Text = $"{rows.Count} Profile · mọi App/Website giải trí được áp policy từ Profile đang chứa chúng.";
+        StatusText.Text = $"{rows.Count} Profile · mỗi Profile có policy, cooldown, nguồn Focus và công thức thưởng riêng.";
     }
 
     private void RenderSelected()
@@ -61,7 +64,7 @@ public partial class ProfileCenterWindow : Window
         if (row is null || _snapshot is null)
         {
             SelectedNameText.Text = "Chọn một Profile";
-            SelectedStatusText.Text = PolicyText.Text = ScheduleText.Text = AllowanceText.Text = BlockActionText.Text = "—";
+            SelectedStatusText.Text = PolicyText.Text = ScheduleText.Text = AllowanceText.Text = DailyBudgetText.Text = CooldownText.Text = RewardPolicyText.Text = BlockActionText.Text = "—";
             AppsMembersList.ItemsSource = WebMembersList.ItemsSource = null;
             return;
         }
@@ -72,7 +75,22 @@ public partial class ProfileCenterWindow : Window
         PolicyText.Text = $"Ngoài lịch: {p.DefaultAccessLabel}\nTrong lịch: {p.ScheduledAccessLabel}";
         ScheduleText.Text = p.ScheduleLabel;
         AllowanceText.Text = p.AllowanceLabel;
+        DailyBudgetText.Text = "Ngân sách ngày: " + p.DailyBudgetLabel;
+        CooldownText.Text = p.CooldownLabel;
+        var focusSourceCount =
+            _snapshot.State.Apps.Count(a => a.Category == AppCategory.Focus && a.BlockProfileId == p.Id) +
+            _snapshot.State.BrowserRules.Count(r => r.Category == AppCategory.Focus && r.BlockProfileId == p.Id);
+        RewardPolicyText.Text = $"Thưởng: {p.RewardRuleLabel} · {focusSourceCount} nguồn Focus · {p.RewardProgressLabel}";
         BlockActionText.Text = p.DefaultBlockActionLabel;
+
+        var appHint = !string.IsNullOrWhiteSpace(_snapshot.LastExternalAppPath)
+            ? $"App vừa dùng: {_snapshot.LastExternalAppName}"
+            : "App vừa dùng: chưa có dữ liệu";
+        var webHint = !string.IsNullOrWhiteSpace(_snapshot.CurrentBrowserHost) &&
+                      _snapshot.CurrentBrowserHost != "—"
+            ? $"Website: {_snapshot.CurrentBrowserHost}"
+            : "Website: chưa có dữ liệu";
+        QuickAddContextText.Text = $"{appHint} · {webHint}";
 
         var apps = _snapshot.State.Apps
             .Where(a => a.Category == AppCategory.Entertainment && a.BlockProfileId == p.Id)
@@ -82,7 +100,7 @@ public partial class ProfileCenterWindow : Window
         var web = _snapshot.State.BrowserRules
             .Where(r => r.Category == AppCategory.Entertainment && r.BlockProfileId == p.Id)
             .OrderBy(r => r.DisplayName)
-            .Select(r => $"◎  {r.DisplayName}   ·   {r.Pattern}")
+            .Select(r => $"◎  {r.DisplayName}   ·   {r.MatchTypeLabel}   ·   {r.Pattern}")
             .ToList();
 
         AppsHeaderText.Text = $"Ứng dụng giải trí ({apps.Count})";
@@ -158,8 +176,120 @@ public partial class ProfileCenterWindow : Window
                 await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = member.Id, BlockProfileId = fallback.Id });
         }
 
+        foreach (var source in editor.FocusAppSources)
+        {
+            if (source.IsMember)
+                await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = source.Id, BlockProfileId = profile.Id });
+            else if (source.WasMember)
+                await _client.SendAsync(new PipeRequest { Command = "setAppProfile", AppId = source.Id, BlockProfileId = "" });
+        }
+
+        foreach (var source in editor.FocusWebsiteSources)
+        {
+            if (source.IsMember)
+                await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = source.Id, BlockProfileId = profile.Id });
+            else if (source.WasMember)
+                await _client.SendAsync(new PipeRequest { Command = "setBrowserProfile", BrowserRuleId = source.Id, BlockProfileId = "" });
+        }
+
         await RefreshAsync(profile.Id);
-        StatusText.Text = $"Đã áp dụng Profile {editor.EditedProfile.Name} cho App + Website thành viên.";
+        StatusText.Text = $"Đã áp dụng Profile {editor.EditedProfile.Name}: giải trí + cooldown + nguồn Focus + công thức thưởng.";
+    }
+
+    private async void QuickAddLastApp_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedRow is not { } row) return;
+
+        // Refresh immediately so Quick Add uses Guard's newest remembered external app.
+        var latest = await _client.SendAsync(new PipeRequest { Command = "snapshot" });
+        if (!latest.Ok || latest.Snapshot is null)
+        {
+            MessageBox.Show(this, latest.Message, "Quick Add",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _snapshot = latest.Snapshot;
+        var path = _snapshot.LastExternalAppPath;
+        var processName = _snapshot.LastExternalAppName;
+
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            MessageBox.Show(this,
+                "FocusLock chưa ghi nhận được app bên ngoài vừa dùng. Hãy mở app cần thêm, sử dụng nó vài giây rồi quay lại Profile Center.",
+                "Quick Add · App",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (IsBrowserExecutable(processName, path))
+        {
+            MessageBox.Show(this,
+                $"App vừa dùng là trình duyệt ({Path.GetFileName(path)}). Không nên thêm cả trình duyệt vào Profile giải trí vì sẽ khóa mọi website.\n\nHãy dùng nút “+ Website đang mở” bên cạnh.",
+                "Quick Add · Trình duyệt",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        await AddAppToSelectedProfileAsync(path, quickAdd: true);
+    }
+
+    private async void QuickAddCurrentWebsite_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedRow is null) return;
+
+        var latest = await _client.SendAsync(new PipeRequest { Command = "snapshot" });
+        if (!latest.Ok || latest.Snapshot is null)
+        {
+            MessageBox.Show(this, latest.Message, "Quick Add",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _snapshot = latest.Snapshot;
+        var type = GetQuickWebsiteMatchType();
+        var pattern = BrowserRuleUrlHelper.PatternFromCurrentPage(
+            type,
+            _snapshot.CurrentBrowserUrl,
+            _snapshot.CurrentBrowserHost,
+            _snapshot.CurrentBrowserTitle);
+
+        if (string.IsNullOrWhiteSpace(pattern))
+        {
+            MessageBox.Show(this,
+                "FocusLock chưa có URL website gần nhất từ Browser Bridge. Hãy mở website cần thêm, chờ FocusLock nhận ra nó rồi quay lại bấm Quick Add.",
+                "Quick Add · Website",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        await AddWebsiteToSelectedProfileAsync(pattern, type, quickAdd: true);
+    }
+
+    private BrowserRuleMatchType GetQuickWebsiteMatchType()
+    {
+        if (QuickWebsiteScopeCombo.SelectedItem is ComboBoxItem item &&
+            item.Tag is string tag &&
+            Enum.TryParse<BrowserRuleMatchType>(tag, true, out var type))
+            return type;
+
+        return BrowserRuleMatchType.HostSuffix;
+    }
+
+    private static bool IsBrowserExecutable(string? processName, string? path)
+    {
+        var name = (processName ?? Path.GetFileNameWithoutExtension(path ?? "")).Trim();
+        return name.Equals("chrome", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("msedge", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("browser", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("coccoc", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("brave", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("firefox", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("opera", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("vivaldi", StringComparison.OrdinalIgnoreCase);
     }
 
     private async void AddExeApp_Click(object sender, RoutedEventArgs e)
@@ -187,7 +317,7 @@ public partial class ProfileCenterWindow : Window
         await AddAppToSelectedProfileAsync(picker.SelectedPath);
     }
 
-    private async Task AddAppToSelectedProfileAsync(string path)
+    private async Task AddAppToSelectedProfileAsync(string path, bool quickAdd = false)
     {
         if (SelectedRow is not { } row || _snapshot is null) return;
 
@@ -233,10 +363,14 @@ public partial class ProfileCenterWindow : Window
                 return;
             }
 
+            var displayName = existing?.Name ?? Path.GetFileNameWithoutExtension(full);
             await RefreshAsync(row.Profile.Id);
             StatusText.Text = existing is null
-                ? $"Đã thêm ứng dụng vào Profile {row.Profile.Name}."
-                : $"Đã chuyển {existing.Name} sang Profile {row.Profile.Name}.";
+                ? $"✓ Đã thêm {displayName} vào Profile {row.Profile.Name}."
+                : $"✓ Đã chuyển {displayName} sang Profile {row.Profile.Name}.";
+
+            if (quickAdd)
+                QuickAddContextText.Text = $"✓ App: {displayName} → {row.Profile.Name}";
         }
         catch (Exception ex)
         {
@@ -258,19 +392,25 @@ public partial class ProfileCenterWindow : Window
         }
 
         _snapshot = latest.Snapshot;
-        var host = NormalizeHost(_snapshot.CurrentBrowserHost);
-        if (string.IsNullOrWhiteSpace(host))
+        var type = GetSelectedWebsiteMatchType();
+        var pattern = BrowserRuleUrlHelper.PatternFromCurrentPage(
+            type,
+            _snapshot.CurrentBrowserUrl,
+            _snapshot.CurrentBrowserHost,
+            _snapshot.CurrentBrowserTitle);
+
+        if (string.IsNullOrWhiteSpace(pattern))
         {
             MessageBox.Show(this,
-                "FocusLock chưa nhận được website hiện tại. Hãy mở website trong trình duyệt rồi thử lại.",
+                "FocusLock chưa nhận được website/URL hiện tại phù hợp với phạm vi đã chọn.",
                 "Website hiện tại",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
         }
 
-        NewWebsiteBox.Text = host;
-        await AddWebsiteToSelectedProfileAsync(host);
+        NewWebsiteBox.Text = pattern;
+        StatusText.Text = $"Đã lấy trang đang mở theo phạm vi: {WebsiteMatchTypeLabel(type)}. Kiểm tra rồi bấm + Thêm vào Profile.";
     }
 
     private async void AddWebsite_Click(object sender, RoutedEventArgs e)
@@ -278,40 +418,69 @@ public partial class ProfileCenterWindow : Window
         await AddWebsiteToSelectedProfileAsync(NewWebsiteBox.Text);
     }
 
-    private async Task AddWebsiteToSelectedProfileAsync(string raw)
+    private Task AddWebsiteToSelectedProfileAsync(string raw)
+        => AddWebsiteToSelectedProfileAsync(raw, GetSelectedWebsiteMatchType(), quickAdd: false);
+
+    private async Task AddWebsiteToSelectedProfileAsync(
+        string raw,
+        BrowserRuleMatchType type,
+        bool quickAdd)
     {
         if (SelectedRow is not { } row || _snapshot is null) return;
 
-        var host = NormalizeHost(raw);
-        if (string.IsNullOrWhiteSpace(host))
+        var pattern = BrowserRuleUrlHelper.NormalizePattern(raw, type);
+
+        if (string.IsNullOrWhiteSpace(pattern))
         {
-            MessageBox.Show(this, "Nhập website hợp lệ, ví dụ youtube.com hoặc genk.vn.",
-                "Thêm website", MessageBoxButton.OK, MessageBoxImage.Warning);
+            var example = type == BrowserRuleMatchType.HostSuffix
+                ? "youtube.com"
+                : "https://www.youtube.com/@kenh-hoc";
+            MessageBox.Show(this,
+                $"Nội dung không hợp lệ cho phạm vi {WebsiteMatchTypeLabel(type)}. Ví dụ: {example}",
+                "Thêm website",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return;
         }
 
-        var existing = _snapshot.State.BrowserRules.FirstOrDefault(r =>
-            r.Category == AppCategory.Entertainment &&
-            r.MatchType == BrowserRuleMatchType.HostSuffix &&
-            string.Equals(NormalizeHost(r.Pattern), host, StringComparison.OrdinalIgnoreCase));
+        var conflict = _snapshot.State.BrowserRules.FirstOrDefault(r =>
+            r.MatchType == type &&
+            string.Equals(
+                BrowserRuleUrlHelper.NormalizePattern(r.Pattern, r.MatchType),
+                pattern,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (conflict is not null && conflict.Category != AppCategory.Entertainment)
+        {
+            MessageBox.Show(this,
+                $"Rule này hiện đang được phân loại là {conflict.CategoryLabel}. Hãy sửa/xóa rule đó ở trang Website trước khi chuyển nó thành Giải trí.",
+                "Rule đang tồn tại",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
 
         PipeResponse response;
-        if (existing is not null)
+        if (conflict is not null)
         {
             response = await _client.SendAsync(new PipeRequest
             {
                 Command = "setBrowserProfile",
-                BrowserRuleId = existing.Id,
+                BrowserRuleId = conflict.Id,
                 BlockProfileId = row.Profile.Id
             });
         }
         else
         {
+            var display = type == BrowserRuleMatchType.HostSuffix
+                ? pattern
+                : BrowserRuleUrlHelper.NormalizeHost(pattern);
+
             var rule = new BrowserRule
             {
-                Name = host,
-                Pattern = host,
-                MatchType = BrowserRuleMatchType.HostSuffix,
+                Name = string.IsNullOrWhiteSpace(display) ? pattern : display,
+                Pattern = pattern,
+                MatchType = type,
                 Category = AppCategory.Entertainment,
                 Enabled = true,
                 BlockProfileId = row.Profile.Id,
@@ -333,28 +502,40 @@ public partial class ProfileCenterWindow : Window
             return;
         }
 
-        NewWebsiteBox.Clear();
+        if (!quickAdd)
+            NewWebsiteBox.Clear();
+
+        var displayRule = conflict?.DisplayName ??
+                          (type == BrowserRuleMatchType.HostSuffix
+                              ? pattern
+                              : BrowserRuleUrlHelper.NormalizeHost(pattern));
+
         await RefreshAsync(row.Profile.Id);
-        StatusText.Text = existing is null
-            ? $"Đã thêm {host} vào Profile {row.Profile.Name}."
-            : $"Đã chuyển {host} sang Profile {row.Profile.Name}.";
+        StatusText.Text = conflict is null
+            ? $"✓ Đã thêm {displayRule} ({WebsiteMatchTypeLabel(type)}) vào Profile {row.Profile.Name}."
+            : $"✓ Đã chuyển {displayRule} sang Profile {row.Profile.Name}.";
+
+        if (quickAdd)
+            QuickAddContextText.Text = $"✓ Website: {displayRule} → {row.Profile.Name}";
     }
 
-    private static string NormalizeHost(string? value)
+    private BrowserRuleMatchType GetSelectedWebsiteMatchType()
     {
-        var raw = (value ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(raw) || raw == "—") return "";
+        if (WebsiteScopeCombo.SelectedItem is ComboBoxItem item &&
+            item.Tag is string tag &&
+            Enum.TryParse<BrowserRuleMatchType>(tag, true, out var type))
+            return type;
 
-        if (Uri.TryCreate(raw, UriKind.Absolute, out var direct) &&
-            !string.IsNullOrWhiteSpace(direct.Host))
-            return direct.Host.Trim().TrimStart('.').ToLowerInvariant();
-
-        if (Uri.TryCreate("https://" + raw, UriKind.Absolute, out var withScheme) &&
-            !string.IsNullOrWhiteSpace(withScheme.Host))
-            return withScheme.Host.Trim().TrimStart('.').ToLowerInvariant();
-
-        return raw.Split('/')[0].Trim().TrimStart('.').ToLowerInvariant();
+        return BrowserRuleMatchType.HostSuffix;
     }
+
+    private static string WebsiteMatchTypeLabel(BrowserRuleMatchType type) => type switch
+    {
+        BrowserRuleMatchType.HostSuffix => "Cả website / domain",
+        BrowserRuleMatchType.UrlPrefix => "URL bắt đầu bằng",
+        BrowserRuleMatchType.ExactUrl => "Chính xác trang / URL",
+        _ => type.ToString()
+    };
 
     private async void ToggleSelected_Click(object sender, RoutedEventArgs e)
     {

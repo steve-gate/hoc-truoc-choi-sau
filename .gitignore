@@ -44,3 +44,18 @@ web-diagnostic.txt
 install.log
 service-console.stderr.txt
 service-console.stdout.txt
+
+# Backups and temporary data
+.onedir-data-preserve/
+.runtime-backups/
+.source-backups/
+
+# Build outputs / payloads
+FocusLock-OneDir/
+payload/
+
+# One-off test, validation notes and patches
+*.patch
+HOTFIX_*.txt
+STATIC_VALIDATION_*.txt
+TEST_*.txt

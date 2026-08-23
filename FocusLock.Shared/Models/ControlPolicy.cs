@@ -24,6 +24,30 @@ public sealed class ControlPolicy
 
     public bool SettingsProtectionActive => SettingsTextProtectionActive || SettingsTimeProtectionActive;
 
+    // V7.7.4 Focus Session.
+    // Progress is QUALIFIED Focus time, not wall-clock time. This means idle,
+    // neutral apps and low-activity pages do not advance the session.
+    public DateTime? FocusSessionStartedUtc { get; set; }
+    public int FocusSessionTargetSeconds { get; set; }
+    public int FocusSessionQualifiedSeconds { get; set; }
+    public int FocusSessionRewardSeconds { get; set; }
+
+    // Optional Profile binding. Empty = any Focus source + global reward formula.
+    // Non-empty = only Focus sources assigned to that Profile advance the session,
+    // and the session reward uses that Profile's formula.
+    public string FocusSessionProfileId { get; set; } = "";
+    public string FocusSessionProfileName { get; set; } = "";
+
+    public bool FocusSessionActive =>
+        FocusSessionStartedUtc is not null &&
+        FocusSessionTargetSeconds > 0 &&
+        FocusSessionQualifiedSeconds < FocusSessionTargetSeconds;
+
+    public int FocusSessionRemainingSeconds =>
+        FocusSessionActive
+            ? Math.Max(0, FocusSessionTargetSeconds - FocusSessionQualifiedSeconds)
+            : 0;
+
     // Locked Session: entertainment is blocked regardless of wallet/allowance.
     public DateTime? LockedSessionUntilUtc { get; set; }
 
