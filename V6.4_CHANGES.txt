@@ -1,0 +1,15 @@
+FocusLock V6.4 Stable Startup / Full Sync
+
+- Full V6 UI/UX source, not installer-only hotfix.
+- ZIP is FLAT: files are at archive root so extracting over the GitHub repo actually replaces the old V5 files.
+- CAI_DAT.bat UAC flow simplified and keeps the elevated console visible until success/failure is acknowledged.
+- Safe staging build: compile first, then stop runtime and replace binaries.
+- Main WPF window is created manually inside try/catch instead of StartupUri so startup/XAML failures are visible and logged.
+- publish\Logs\startup.log records app start/exit.
+- publish\Logs\crash.log records WPF/startup/timer/bubble exceptions.
+- Single-instance behavior activates the already-running window instead of silently disappearing when possible.
+- Bubble errors cannot terminate the main application.
+- Agent timer/startup exceptions are caught and logged.
+- Installer waits for FocusLock.exe to remain alive before displaying INSTALL OK.
+- publish\Data remains untouched during rebuild/update.
+- GitHub Actions Windows build check added at .github/workflows/windows-build.yml.

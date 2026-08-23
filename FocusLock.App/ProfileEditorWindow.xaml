@@ -8,7 +8,7 @@
 
         <StackPanel Margin="0,0,0,16">
             <TextBlock Text="Profile Policy Center" FontSize="27" FontWeight="Bold"/>
-            <TextBlock Text="Profile là đơn vị quản lý chính. App và website giải trí chỉ là thành viên; mọi allowance, ví, lịch và cách khóa được áp dụng từ đây." Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0"/>
+            <TextBlock Text="Chỉ chỉnh chính sách của Profile tại đây. Thêm App/Website trực tiếp ở Profile Center để thao tác nhanh và rõ ràng." Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0"/>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -59,7 +59,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource CardStyle}">
+                <Border Style="{StaticResource CardStyle}" Visibility="Collapsed">
                     <StackPanel>
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Left"><TextBlock Text="Thành viên của profile" Style="{StaticResource SectionTitle}"/><TextBlock Text="Chọn trực tiếp cả app và website. Một mục chỉ thuộc một Block Profile." Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/></StackPanel>

@@ -10,10 +10,10 @@
     <AssemblyName>FocusLock</AssemblyName>
     <RootNamespace>FocusLock.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>7.5.6</Version>
-    <AssemblyVersion>7.5.6.0</AssemblyVersion>
-    <FileVersion>7.5.6.0</FileVersion>
-    <InformationalVersion>7.5.6</InformationalVersion>
+    <Version>7.7.0</Version>
+    <AssemblyVersion>7.7.0.0</AssemblyVersion>
+    <FileVersion>7.7.0.0</FileVersion>
+    <InformationalVersion>7.7.0</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\FocusLock.Shared\FocusLock.Shared.csproj" />

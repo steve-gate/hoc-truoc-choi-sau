@@ -1,0 +1,49 @@
+FOCUSLOCK V7.1 — TEST CHECKLIST
+
+A. Build/install
+[ ] Chạy NANG_CAP_V7_1.bat bằng CMD Administrator.
+[ ] Cuối install: Guard Running + pipe OK.
+[ ] FocusLock mở và sidebar hiện "Đang bảo vệ".
+[ ] Reload Browser Extension một lần.
+
+B. Allowance
+[ ] Tạo/đặt profile Game, allowance = 2 phút/ngày, lịch tắt.
+[ ] Ví Focus = 00:00.
+[ ] Mở app Game: vẫn dùng được trong allowance.
+[ ] Khi hết allowance: app bị xử lý theo chế độ khóa đã chọn.
+[ ] Có ví Focus: sau allowance, app dùng tiếp bằng ví.
+[ ] Gán một website giải trí vào cùng profile: allowance/lịch phải áp dụng chung.
+
+C. Schedule
+[ ] Bật lịch cho profile Game, chọn ngày hiện tại và khung giờ bao quanh giờ hiện tại.
+[ ] Chọn "Khóa tuyệt đối": game bị khóa dù ví còn thời gian.
+[ ] Chọn "Dùng ví": allowance bị bỏ qua trong lịch; chỉ ví Focus cho phép game chạy.
+[ ] Test lịch qua đêm nếu cần.
+
+D. Strict Mode
+[ ] Đặt delay = 1 phút để test.
+[ ] Bật Strict.
+[ ] Thử xóa app/tắt profile/sửa browser rule/lưu Settings: service phải từ chối.
+[ ] Bấm "Yêu cầu mở".
+[ ] Trước 1 phút: nút Tắt Strict chưa khả dụng / service từ chối.
+[ ] Sau 1 phút: Tắt Strict thành công, cấu hình sửa lại được.
+
+E. Locked Session
+[ ] Đặt 1 phút, bấm Bắt đầu khóa.
+[ ] App giải trí bị khóa dù có ví/allowance.
+[ ] Website giải trí bị block.
+[ ] Không thể sửa cấu hình trong phiên.
+[ ] Hết 1 phút: app giải trí hoạt động lại theo ví/allowance bình thường.
+
+F. Focus-only / Whitelist
+[ ] Đặt 1 phút và bắt đầu.
+[ ] App giải trí đã khai báo bị khóa.
+[ ] Website có rule Focus vẫn mở và được cộng Focus.
+[ ] Website Entertainment bị block.
+[ ] Website chưa có rule cũng bị block.
+[ ] Hết phiên: browser trở lại rule bình thường.
+
+G. Website Focus 2.0 regression
+[ ] Website Focus + click/scroll/gõ: Focus tăng.
+[ ] Video bài học đang phát, tab visible + browser foreground: Focus tiếp tục tăng khi không rê chuột.
+[ ] Chuyển tab/thu nhỏ: ngừng cộng.

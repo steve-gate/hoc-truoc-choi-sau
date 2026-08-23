@@ -1,0 +1,23 @@
+FocusLock V7.6.2 - WEB CORE ROLLBACK TO V7.3
+
+This is deliberately a rollback, not another browser architecture experiment.
+
+Restored from V7.3:
+- BrowserExtension uses chrome.windows.getLastFocused() and real win.focused.
+- Active tab is queried from that focused browser window.
+- ActiveElapsedMilliseconds is measured by the Extension only while:
+  same tab/url + window focused + document visible.
+- NativeHost is again a simple pass-through. It does not call GetForegroundWindow,
+  does not reinterpret the browser name, and does not replace Extension timing.
+- Guard browser accounting again consumes Extension-reported elapsed milliseconds
+  exactly like V7.3.
+
+Kept from current app:
+- Profiles / schedules / allowance / wallet policies.
+- Settings protection / tray / Bubble / key rules.
+- Browser entertainment policy ignores desktop-agent heartbeat.
+- While a classified Extension tab is foreground, stale desktop Activity samples
+  are not allowed to overwrite web state with "Sẵn sàng · browser" or SnippingTool.
+- browser.exe is accepted only as a harmless desktop-process alias/fallback.
+
+Data is untouched.

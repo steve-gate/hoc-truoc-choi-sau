@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Windows.Documents;
+using System.Diagnostics;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,16 +11,16 @@ using FocusLock.Shared.Models;
 using FocusLock.Shared.Protocol;
 using Microsoft.Win32;
 
+using FocusLock.Shared.Utilities;
 namespace FocusLock.App;
 
 public partial class MainWindow : Window
 {
     private readonly ServiceClient _client = new();
     private readonly Win32Activity _sensor = new();
-    private readonly CancellationTokenSource _agentCts = new();
-    private Task? _agentLoopTask;
-    private int _agentLoopStarted;
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private ServiceSnapshot? _snapshot;
+    private bool _busy;
     private BubbleWindow? _bubble;
     private string? _lastNewestKey;
     private bool _settingsLoaded;
@@ -60,6 +61,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         InitializeTrayIcon();
+        _timer.Tick += async (_, _) => await AgentTickAsync();
         Loaded += async (_, _) => await StartAsync();
         Closing += MainWindow_Closing;
         StateChanged += (_, _) =>
@@ -110,7 +112,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        try { _agentCts.Cancel(); } catch { }
+        try { _timer.Stop(); } catch { }
         _sensor.Dispose();
         try { _bubble?.Close(); } catch { }
         if (_trayIcon is not null)
@@ -179,88 +181,29 @@ public partial class MainWindow : Window
         }
         finally
         {
-            StartBackgroundAgent();
+            _timer.Start();
         }
     }
 
-    private void StartBackgroundAgent()
+    private async Task AgentTickAsync()
     {
-        if (Interlocked.Exchange(ref _agentLoopStarted, 1) != 0) return;
-
-        AppCrashLogger.Info("Background desktop agent loop STARTED.");
-        _agentLoopTask = Task.Run(() => BackgroundAgentLoopAsync(_agentCts.Token));
-    }
-
-    private async Task BackgroundAgentLoopAsync(CancellationToken cancellationToken)
-    {
-        var consecutiveErrors = 0;
-
-        while (!cancellationToken.IsCancellationRequested)
+        if (_busy) return;
+        _busy = true;
+        try
         {
-            var started = Stopwatch.GetTimestamp();
-
-            try
-            {
-                // This loop is intentionally independent of the WPF Dispatcher.
-                // Even when the window is hidden in the tray or the UI thread is
-                // busy rendering, Guard still receives a foreground heartbeat.
-                var sample = _sensor.Capture();
-                var response = await _client.SendAsync(
-                    new PipeRequest { Command = "activity", Activity = sample },
-                    timeoutMs: 900,
-                    cancellationToken: cancellationToken);
-
-                consecutiveErrors = response.Ok ? 0 : consecutiveErrors + 1;
-
-                if (!cancellationToken.IsCancellationRequested && response.Snapshot is not null)
-                {
-                    // Never await the UI dispatcher here. The next heartbeat must
-                    // not depend on whether WPF is currently busy.
-                    _ = Dispatcher.BeginInvoke(
-                        DispatcherPriority.Background,
-                        new Action(() =>
-                        {
-                            try
-                            {
-                                ApplyResponse(response);
-                                if (!response.Ok)
-                                    FooterText.Text = response.Message;
-                            }
-                            catch (Exception ex)
-                            {
-                                AppCrashLogger.Exception("ApplyResponse from background agent", ex);
-                            }
-                        }));
-                }
-
-                if (!response.Ok && consecutiveErrors == 1)
-                    AppCrashLogger.Info("Background agent temporarily cannot reach Guard: " + response.Message);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                consecutiveErrors++;
-                if (consecutiveErrors == 1 || consecutiveErrors % 10 == 0)
-                    AppCrashLogger.Exception("BackgroundAgentLoopAsync", ex);
-            }
-
-            var elapsed = (Stopwatch.GetTimestamp() - started) / (double)Stopwatch.Frequency;
-            var delay = TimeSpan.FromMilliseconds(Math.Max(100, 1000 - (elapsed * 1000)));
-
-            try
-            {
-                await Task.Delay(delay, cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
+            var response = await _client.SendAsync(
+                new PipeRequest { Command = "activity", Activity = _sensor.Capture() });
+            ApplyResponse(response);
         }
-
-        AppCrashLogger.Info("Background desktop agent loop STOPPED.");
+        catch (Exception ex)
+        {
+            AppCrashLogger.Exception("AgentTickAsync", ex);
+            FooterText.Text = @"Agent gặp lỗi tạm thời; FocusLock vẫn mở. Xem Logs\crash.log.";
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private void ApplyResponse(PipeResponse response)
@@ -503,7 +446,6 @@ public partial class MainWindow : Window
             }
 
             var browserEntertainmentActive = _snapshot.BrowserForegroundActive &&
-                                             _snapshot.BrowserDocumentVisible &&
                                              _snapshot.CurrentBrowserCategory.Equals("Giải trí", StringComparison.OrdinalIgnoreCase);
             if (_snapshot.EntertainmentSessionActive || browserEntertainmentActive)
             {
@@ -549,7 +491,6 @@ public partial class MainWindow : Window
             var mode = _snapshot.CurrentMode ?? "";
             var browserFocusActive =
                 _snapshot.BrowserForegroundActive &&
-                _snapshot.BrowserDocumentVisible &&
                 _snapshot.CurrentBrowserCategory.Equals("Focus", StringComparison.OrdinalIgnoreCase) &&
                 _snapshot.BrowserFocusQualified;
             var desktopFocusActive =
@@ -626,6 +567,8 @@ public partial class MainWindow : Window
         var response = await _client.SendAsync(new PipeRequest { Command = "addApp", App = app });
         ApplyResponse(response);
         FooterText.Text = response.Ok ? $"Đã thêm {app.Name} vào {FriendlyCategory(category.ToString())}." : response.Message;
+        if (!response.Ok)
+            MessageBox.Show(this, response.Message, "Không thể thêm ứng dụng", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private void AddRunningFocusApp_Click(object sender, RoutedEventArgs e) => _ = AddRunningAppAsync(AppCategory.Focus);
@@ -842,6 +785,146 @@ public partial class MainWindow : Window
         FooterText.Text = response.Message;
     }
 
+    private static string VisibleChar(char ch) => ch switch
+    {
+        ' ' => "·",
+        '\n' => "↵",
+        '\t' => "⇥",
+        _ => ch.ToString()
+    };
+
+    private void RenderSettingsChallengeColoredPreview(string expected, string actual)
+    {
+        if (SettingsChallengeColoredPreview is null) return;
+
+        SettingsChallengeColoredPreview.Inlines.Clear();
+
+        var max = Math.Max(expected.Length, actual.Length);
+        if (max == 0)
+        {
+            SettingsChallengeColoredPreview.Inlines.Add(
+                new Run("Bắt đầu gõ để xem so sánh trực tiếp.")
+                {
+                    Foreground = System.Windows.Media.Brushes.DimGray
+                });
+            return;
+        }
+
+        for (var i = 0; i < max; i++)
+        {
+            if (i >= actual.Length)
+            {
+                // Expected but not typed yet.
+                SettingsChallengeColoredPreview.Inlines.Add(
+                    new Run(VisibleChar(expected[i]))
+                    {
+                        Foreground = System.Windows.Media.Brushes.DarkGray,
+                    });
+                continue;
+            }
+
+            if (i >= expected.Length)
+            {
+                // Extra typed character.
+                SettingsChallengeColoredPreview.Inlines.Add(
+                    new Run(VisibleChar(actual[i]))
+                    {
+                        Foreground = System.Windows.Media.Brushes.Firebrick,
+                        FontWeight = FontWeights.SemiBold
+                    });
+                continue;
+            }
+
+            var ok = SettingsChallengeComparer.CharsEqual(expected[i], actual[i]);
+            SettingsChallengeColoredPreview.Inlines.Add(
+                new Run(VisibleChar(actual[i]))
+                {
+                    Foreground = ok
+                        ? System.Windows.Media.Brushes.SeaGreen
+                        : System.Windows.Media.Brushes.Firebrick,
+                    FontWeight = ok ? FontWeights.Normal : FontWeights.Bold
+                });
+        }
+    }
+
+    private void UpdateSettingsChallengeComparison()
+    {
+        if (SettingsChallengeCompareStatus is null ||
+            SettingsChallengeCompareDetail is null ||
+            SettingsChallengeColoredPreview is null ||
+            UnlockSettingsTextProtectionButton is null ||
+            SettingsChallengeInputBorder is null)
+        {
+            return;
+        }
+
+        var expected = SettingsChallengeComparer.Normalize(SettingsChallengeText?.Text ?? "");
+        var actual = SettingsChallengeComparer.Normalize(SettingsChallengeInput?.Text ?? "");
+
+        RenderSettingsChallengeColoredPreview(expected, actual);
+
+        if (expected.Length == 0)
+        {
+            SettingsChallengeCompareStatus.Text = "○ Chưa có đoạn chuẩn";
+            SettingsChallengeCompareStatus.Foreground = System.Windows.Media.Brushes.DimGray;
+            SettingsChallengeCompareDetail.Text = "Chưa thể so sánh.";
+            SettingsChallengeInputBorder.BorderBrush = FindResource("BorderBrush") as System.Windows.Media.Brush;
+            UnlockSettingsTextProtectionButton.IsEnabled = false;
+            return;
+        }
+
+        if (actual.Length == 0)
+        {
+            SettingsChallengeCompareStatus.Text = "○ Chưa nhập";
+            SettingsChallengeCompareStatus.Foreground = System.Windows.Media.Brushes.DimGray;
+            SettingsChallengeCompareDetail.Text = "Xanh = đúng · Đỏ = sai · Xám = chưa gõ.";
+            SettingsChallengeInputBorder.BorderBrush = FindResource("BorderBrush") as System.Windows.Media.Brush;
+            UnlockSettingsTextProtectionButton.IsEnabled = false;
+            return;
+        }
+
+        var diff = SettingsChallengeComparer.FirstDifference(expected, actual);
+        if (diff < 0)
+        {
+            SettingsChallengeCompareStatus.Text = "✓ KHỚP 100% · Có thể mở khóa";
+            SettingsChallengeCompareStatus.Foreground = System.Windows.Media.Brushes.SeaGreen;
+            SettingsChallengeCompareDetail.Text =
+                "Toàn bộ nội dung đã khớp. App và Guard đang dùng cùng một bộ so sánh.";
+            SettingsChallengeInputBorder.BorderBrush = System.Windows.Media.Brushes.SeaGreen;
+            SettingsChallengeInputBorder.BorderThickness = new Thickness(2);
+            UnlockSettingsTextProtectionButton.IsEnabled = true;
+            return;
+        }
+
+        SettingsChallengeCompareStatus.Text = $"✗ CHƯA KHỚP · lỗi đầu tiên tại vị trí {diff + 1}";
+        SettingsChallengeCompareStatus.Foreground = System.Windows.Media.Brushes.Firebrick;
+
+        if (actual.Length < expected.Length && diff == actual.Length)
+        {
+            SettingsChallengeCompareDetail.Text =
+                $"Bạn còn thiếu {expected.Length - actual.Length} ký tự. Xem phần màu xám ở cuối.";
+        }
+        else if (actual.Length > expected.Length && diff == expected.Length)
+        {
+            SettingsChallengeCompareDetail.Text =
+                $"Bạn đang thừa {actual.Length - expected.Length} ký tự ở cuối.";
+        }
+        else
+        {
+            SettingsChallengeCompareDetail.Text =
+                "Ký tự màu đỏ là chỗ sai. Sửa đến khi toàn bộ đoạn chuyển sang màu xanh.";
+        }
+
+        SettingsChallengeInputBorder.BorderBrush = System.Windows.Media.Brushes.Firebrick;
+        SettingsChallengeInputBorder.BorderThickness = new Thickness(2);
+        UnlockSettingsTextProtectionButton.IsEnabled = false;
+    }
+
+    private void SettingsChallengeInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        UpdateSettingsChallengeComparison();
+    }
+
     private async void UnlockSettingsTextProtection_Click(object sender, RoutedEventArgs e)
     {
         var typed = SettingsChallengeInput.Text;
@@ -850,14 +933,34 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Hãy tự gõ đầy đủ đoạn xác nhận trước.", "Bảo vệ cài đặt");
             return;
         }
+
         var response = await _client.SendAsync(new PipeRequest
         {
             Command = "unlockSettingsTextProtection",
             TextValue = typed
         });
+
         ApplyResponse(response);
         FooterText.Text = response.Message;
-        if (response.Ok) SettingsChallengeInput.Clear();
+
+        if (!response.Ok)
+        {
+            MessageBox.Show(
+                this,
+                response.Message,
+                "Chưa mở khóa",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        SettingsChallengeInput.Clear();
+        MessageBox.Show(
+            this,
+            "Đã mở khóa cấu hình. Bây giờ bạn có thể thêm/sửa phần mềm, website, profile và cài đặt.",
+            "Đã mở khóa",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private async void EnableSettingsTimeProtection_Click(object sender, RoutedEventArgs e)
@@ -976,7 +1079,16 @@ public partial class MainWindow : Window
             SettingsProtectionStatusText.Text = "○ Chưa bảo vệ cấu hình";
 
         SettingsChallengePanel.Visibility = textProtection ? Visibility.Visible : Visibility.Collapsed;
-        if (textProtection) SettingsChallengeText.Text = policy.SettingsUnlockChallenge;
+        if (textProtection)
+        {
+            SettingsChallengeText.Text = policy.SettingsUnlockChallenge;
+            UpdateSettingsChallengeComparison();
+        }
+        else
+        {
+            SettingsChallengeInput.Clear();
+            UnlockSettingsTextProtectionButton.IsEnabled = false;
+        }
 
         var protectionConfiguredAndFuture = textProtection || timeProtection ||
                                             (timeConfigured && policy.SettingsProtectionUntilUtc is DateTime futureUntil && futureUntil > now);
@@ -1076,7 +1188,10 @@ public partial class MainWindow : Window
         var response = await _client.SendAsync(new PipeRequest { Command = "addBrowserRule", BrowserRule = rule });
         ApplyResponse(response);
         FooterText.Text = response.Message;
-        if (response.Ok) SimpleBrowserRuleBox.Clear();
+        if (response.Ok)
+            SimpleBrowserRuleBox.Clear();
+        else
+            MessageBox.Show(this, response.Message, "Không thể thêm website", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private async Task AddBrowserRuleAsync(AppCategory category)
@@ -1103,6 +1218,10 @@ public partial class MainWindow : Window
         {
             BrowserRulePatternBox.Clear();
             BrowserRuleNameBox.Clear();
+        }
+        else
+        {
+            MessageBox.Show(this, response.Message, "Không thể thêm website", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

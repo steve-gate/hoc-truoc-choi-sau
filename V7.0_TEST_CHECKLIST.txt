@@ -1,0 +1,33 @@
+FOCUSLOCK V7.0 - TEST CHECKLIST
+
+A. Website Focus 2.0
+1. Build/install V7.
+2. Chrome/Edge -> extensions -> FocusLock Browser Bridge -> Reload.
+3. Refresh the learning tab.
+4. Add its domain/URL as Học/Làm việc in FocusLock -> Website.
+5. Keep browser foreground.
+6. Click/type/scroll: FocusLock should show "Đang cộng Focus" and Focus progress should increase.
+7. Play a video/audio lesson and stop touching mouse: if media currentTime is progressing, Focus should keep increasing.
+8. Minimize browser or switch to another app: website Focus should stop.
+
+B. Per-app lock mode
+1. Add an Entertainment app.
+2. In its card click lock-mode label to cycle:
+   Đóng ứng dụng -> Khóa tại chỗ -> Chặn mở lại.
+3. Set balance to 0 / consume balance.
+4. With Khóa tại chỗ, process should stay alive but become frozen/unusable.
+5. Redeem time: app should automatically resume.
+NOTE: Do not use Khóa tại chỗ for online games/anti-cheat/DRM; use Đóng ứng dụng.
+
+C. Block Profiles
+1. Apps page -> create Game, Mạng xã hội, Video.
+2. Click the profile label on an Entertainment app to cycle profiles.
+3. Toggle a profile Off: apps in that profile are temporarily outside its blocker/time policy.
+4. Toggle it On: normal blocking/time policy returns.
+
+D. Regression
+- Guard status green.
+- Add/remove apps works.
+- Rewards redeem works.
+- publish\Data retained.
+- Browser entertainment rule still redirects to blocked page at 00:00.

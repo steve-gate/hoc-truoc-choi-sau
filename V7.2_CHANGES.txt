@@ -1,0 +1,30 @@
+FocusLock V7.2
+
+1. Website engine rebuilt
+- Focus/entertainment time is accounted directly from Browser Extension heartbeat.
+- No longer depends on the exact Chrome/Edge renderer process captured by desktop agent.
+- One trusted click/key/scroll grants a 90-second active-reading lease.
+- Progressing video/audio qualifies as Focus while tab + browser window remain visible/focused.
+- Extension can inject content.js into already-open tabs after Reload.
+- Blocked websites are covered by an in-page FocusLock overlay instead of losing the page by redirecting.
+- Overlay automatically disappears when Guard allows the page again.
+
+2. Weekly calendar schedule
+- 7 days x 48 half-hour slots (336 slots).
+- Click and drag to paint selected time blocks.
+- Existing V7.1 Mon/Tue + HH:mm schedules are migrated into the calendar mask.
+
+3. Real Block Profiles
+Modes:
+- EarnedTime: always requires Focus wallet; selected calendar cells are hard blocks.
+- AllowanceThenEarned: allowance first, then Focus wallet; selected calendar cells are hard blocks.
+- ScheduleBlock: free outside selected calendar cells, hard-blocked inside.
+- ScheduleEarnedTime: free outside selected cells, requires allowance/wallet inside.
+- AlwaysBlock: always blocked while profile is enabled.
+
+Each profile can also override desktop app block action:
+- Close
+- Suspend (Khóa tại chỗ)
+- Block launch
+
+Website and desktop apps in the same profile share the same schedule and allowance.

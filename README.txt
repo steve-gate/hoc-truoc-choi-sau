@@ -1,11 +1,20 @@
-FocusLock Web Diagnostic
+FocusLock V7.7.0 - Profile-first Quick Add
 
-1. Extract into FocusLock project root.
-2. Double-click CHUAN_DOAN_WEB.bat.
-3. During 45 seconds:
-   - first 15 sec: open a Focus/Learning website and click/scroll;
-   - next 15 sec: switch to an Entertainment website;
-   - last 15 sec: stay on that Entertainment website.
-4. Send web-diagnostic.txt.
+UX redesign:
+- Select a Profile, then add entertainment apps directly there:
+  + Running app
+  + Choose .exe
+- Add websites directly there:
+  + Enter domain
+  + Use current website
+- If an app/domain already exists in another Profile, it moves directly to the selected Profile.
+- Policy editor is policy-only; the old giant membership checkbox panel is hidden.
+- Global App/Web pages remain inventories, not mandatory steps.
 
-This script does not change FocusLock, registry, service, extension or Data.
+Service change:
+- AddApp/AddBrowserRule now honor a valid requested BlockProfileId instead of always forcing the default profile.
+
+Safety:
+- publish\Data untouched.
+- Browser Core and NativeHost untouched.
+- Installer also cleans the known Run/backtick compile artifacts before building.

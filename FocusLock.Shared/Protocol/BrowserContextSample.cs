@@ -17,6 +17,10 @@ public sealed class BrowserContextSample
     public bool MediaPlaying { get; set; }
     public bool MediaProgressing { get; set; }
 
+    // V7.6: system idle measured inside NativeHost in the interactive user session.
+    // This lets web accounting remain independent from the desktop UI agent.
+    public long SystemIdleMilliseconds { get; set; } = long.MaxValue;
+
     // V7.3: elapsed foreground+visible time measured by the browser extension.
     // Guard caps this value and uses it instead of relying on MV3 service-worker timer gaps.
     public int ActiveElapsedMilliseconds { get; set; }

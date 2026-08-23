@@ -1,0 +1,15 @@
+FocusLock V6.7 - Pipe Guard Fix
+
+Fixes:
+- Removes obsolete System.IO.Pipes.AccessControl 5.0.0 PackageReference.
+- Uses .NET 10 framework-provided NamedPipeServerStreamAcl.
+- Grants Authenticated Users/Built-in Users ReadWrite + Synchronize on the Guard pipe.
+- Forces FocusLockGuard service account to LocalSystem.
+- Adds publish\Logs\service-pipe.log diagnostics.
+- Rebuilds ONLY FocusLock.Service; UI and Data are not rebuilt or deleted.
+
+Usage:
+1. Extract this ZIP into the FocusLock project root and overwrite.
+2. Open Command Prompt as Administrator.
+3. cd /d "D:\1_Dowload\0code\hoc truoc choi sau"
+4. SUA_PIPE_GUARD.bat

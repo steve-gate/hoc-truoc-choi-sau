@@ -1,0 +1,17 @@
+FocusLock V7.6.1 - Cốc Cốc / browser.exe recognition fix
+
+Root cause:
+- The user's foreground process is shown by FocusLock as "browser".
+- Existing source only recognizes chrome.exe and msedge.exe as browser processes.
+- NativeHost also treated every non-Edge Chromium browser as Chrome and required foreground process == chrome.
+- Therefore browser.exe could never become BrowserForegroundActive; UI fell back to "Sẵn sàng · browser".
+
+Fix:
+- Explicitly recognize Cốc Cốc's browser.exe in Guard.
+- BrowserExtension detects Cốc Cốc UA when available.
+- NativeHost resolves the actual foreground process and maps browser.exe -> coccoc.
+- Backward compatibility: even an older extension reporting "chrome" is accepted when actual foreground process is browser.exe.
+- Browser display name becomes "Cốc Cốc".
+- Also recognizes Brave/Vivaldi/Opera process names to avoid the same bug later.
+- No changes to wallet/profile/data model.
+- publish\Data remains untouched.

@@ -1,0 +1,17 @@
+FocusLock V6.8 - Data ACL Fix
+
+Root cause confirmed by guard-diagnostic.txt:
+FocusLock.Service crashed before creating the Named Pipe because LocalSystem
+was denied access to publish\Data\guard.secret.
+
+Apply:
+1. Extract this ZIP into the FocusLock project root and overwrite.
+2. Open Command Prompt as Administrator.
+3. Run:
+   cd /d "D:\1_Dowload\0code\hoc truoc choi sau"
+   SUA_QUYEN_DATA.bat
+
+This does NOT rebuild the app and does NOT delete Data.
+It repairs ACLs, restarts FocusLockGuard, verifies the Named Pipe, then opens FocusLock.
+
+The included install-v5.ps1 files are also patched so future installs reset stale Data ACLs automatically.

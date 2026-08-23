@@ -27,7 +27,7 @@
                     <StackPanel Margin="11,1,0,0">
                         <TextBlock Text="FocusLock" FontSize="18" FontWeight="Bold"/>
                         <TextBlock Text="Học trước · chơi sau" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Margin="0,1,0,0"/>
-                        <TextBlock Text="V7.5.6" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
+                        <TextBlock Text="V7.7.0" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
                     </StackPanel>
                 </StackPanel>
 
@@ -552,15 +552,71 @@
                                         <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="14" Padding="16">
                                             <StackPanel>
                                                 <TextBlock Text="Gõ đoạn văn để mở" FontWeight="Bold" FontSize="15"/>
-                                                <TextBlock Text="Bật là khóa ngay. Muốn sửa cấu hình phải tự gõ chính xác đoạn xác nhận dài; FocusLock chặn dán vào ô xác nhận." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,12"/>
+                                                <TextBlock Text="Bật là khóa ngay. Muốn sửa cấu hình phải tự gõ đủ đoạn xác nhận; FocusLock chặn dán. Không phân biệt hoa/thường, nhưng phải đủ nội dung, dấu câu và mã xác nhận." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,12"/>
                                                 <Button x:Name="EnableSettingsTextProtectionButton" Style="{StaticResource PrimaryButton}" Content="Bật bảo vệ bằng đoạn văn" Click="EnableSettingsTextProtection_Click" HorizontalAlignment="Left"/>
                                                 <StackPanel x:Name="SettingsChallengePanel" Visibility="Collapsed" Margin="0,14,0,0">
                                                     <TextBlock Text="Hãy gõ lại nguyên văn:" FontWeight="SemiBold"/>
                                                     <Border Background="#F5F7FB" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,7,0,8">
                                                         <TextBlock x:Name="SettingsChallengeText" TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}"/>
                                                     </Border>
-                                                    <TextBox x:Name="SettingsChallengeInput" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="92" VerticalScrollBarVisibility="Auto"/>
-                                                    <Button x:Name="UnlockSettingsTextProtectionButton" Content="Tôi đã gõ xong · mở khóa" Click="UnlockSettingsTextProtection_Click" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                                                    <Border x:Name="SettingsChallengeInputBorder"
+                                                            BorderBrush="{StaticResource BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="8"
+                                                            Background="#FFFFFF">
+                                                        <TextBox x:Name="SettingsChallengeInput"
+                                                                 AcceptsReturn="True"
+                                                                 TextWrapping="Wrap"
+                                                                 MinHeight="92"
+                                                                 VerticalScrollBarVisibility="Auto"
+                                                                 BorderThickness="0"
+                                                                 Background="Transparent"
+                                                                 TextChanged="SettingsChallengeInput_TextChanged"/>
+                                                    </Border>
+
+                                                    <Border Background="#F8FAFC"
+                                                            BorderBrush="{StaticResource BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="10"
+                                                            Padding="12"
+                                                            Margin="0,9,0,0">
+                                                        <StackPanel>
+                                                            <TextBlock x:Name="SettingsChallengeCompareStatus"
+                                                                       Text="○ Chưa nhập"
+                                                                       FontWeight="Bold"
+                                                                       TextWrapping="Wrap"/>
+                                                            <TextBlock x:Name="SettingsChallengeCompareDetail"
+                                                                       Text="Xanh = đúng · Đỏ = sai · Xám = chưa gõ."
+                                                                       Foreground="{StaticResource MutedBrush}"
+                                                                       TextWrapping="Wrap"
+                                                                       Margin="0,4,0,0"/>
+
+                                                            <Border Background="#FFFFFF"
+                                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="8"
+                                                                    Padding="10"
+                                                                    Margin="0,9,0,0">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="SO SÁNH TRỰC TIẾP"
+                                                                               FontSize="11"
+                                                                               FontWeight="SemiBold"
+                                                                               Margin="0,0,0,6"/>
+                                                                    <TextBlock x:Name="SettingsChallengeColoredPreview"
+                                                                               TextWrapping="Wrap"
+                                                                               FontSize="13"
+                                                                               LineHeight="20"/>
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </StackPanel>
+                                                    </Border>
+
+                                                    <Button x:Name="UnlockSettingsTextProtectionButton"
+                                                            Content="Tôi đã gõ xong · mở khóa"
+                                                            Click="UnlockSettingsTextProtection_Click"
+                                                            IsEnabled="False"
+                                                            HorizontalAlignment="Left"
+                                                            Margin="0,10,0,0"/>
                                                 </StackPanel>
                                             </StackPanel>
                                         </Border>

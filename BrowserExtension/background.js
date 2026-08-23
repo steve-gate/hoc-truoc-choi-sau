@@ -1,11 +1,14 @@
-const NATIVE_HOST = "com.focuslock.browserbridge";
+﻿const NATIVE_HOST = "com.focuslock.browserbridge";
 let port = null;
 let reporting = false;
 const pageStateByTab = new Map();
 let lastAccountingSample = null;
 
 function detectBrowser() {
-  return navigator.userAgent.includes("Edg/") ? "edge" : "chrome";
+  const ua = navigator.userAgent || "";
+  if (ua.includes("Edg/")) return "edge";
+  if (ua.includes("CocCoc") || ua.includes("coc_coc_browser")) return "coccoc";
+  return "chrome";
 }
 
 
@@ -96,16 +99,16 @@ async function collectContext() {
     if (lastAccountingSample &&
         lastAccountingSample.tabId === tab?.id &&
         lastAccountingSample.url === url &&
+        lastAccountingSample.windowFocused &&
         lastAccountingSample.documentVisible &&
-        documentVisible) {
-      // Do not trust chrome.windows.focused for accounting. The Windows desktop
-      // agent is the authoritative foreground verifier inside FocusLock Guard.
+        !!win.focused && documentVisible) {
       activeElapsedMilliseconds = Math.max(0, Math.min(2500, now - lastAccountingSample.at));
     }
     lastAccountingSample = {
       tabId: tab?.id || 0,
       url,
       at: now,
+      windowFocused: !!win.focused,
       documentVisible
     };
 
@@ -149,7 +152,7 @@ async function onNativeMessage(message) {
 
   try {
     const win = await chrome.windows.getLastFocused({ windowTypes: ["normal"] });
-    if (!win || win.id === chrome.windows.WINDOW_ID_NONE) return;
+    if (!win?.focused) return;
     const tabs = await chrome.tabs.query({ active: true, windowId: win.id });
     const tab = tabs[0];
     if (!tab?.id || tab.url !== message.url) return;

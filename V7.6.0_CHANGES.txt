@@ -1,0 +1,24 @@
+FocusLock V7.6.0 - Browser Core Rewrite (from user's actual repository)
+
+Confirmed source bug fixed:
+- GetEntertainmentAccessUnsafe() still blocked ALL entertainment whenever desktop heartbeat was unhealthy.
+- Browser entertainment calls now explicitly ignore desktop-agent heartbeat and rely on NativeHost-verified foreground.
+- Browser Focus and Bubble no longer require content-script documentVisible just to identify the active website.
+
+New browser architecture:
+- Extension chooses the active tab in the last-focused browser window.
+- NativeHost verifies chrome.exe/msedge.exe with Win32 GetForegroundWindow().
+- NativeHost measures system idle + monotonic foreground elapsed time.
+- Guard uses NativeHost foreground/idle as the authoritative web clock.
+- Focus web counts while user is active or qualifying media is progressing.
+- Entertainment web consumes allowance/wallet while user is active or media is progressing.
+- Desktop UI agent remains useful for desktop apps, but its heartbeat can no longer break website accounting.
+
+Installer:
+- updates App + Service + BrowserExtension
+- deploys NativeHost side-by-side
+- preserves publish\Data
+
+Diagnostics:
+- publish\Logs\browser-native.log records NativeHost foreground/idle state on changes or every 10s.
+- TEST_WEB_V7_6_0.bat gives a 30-second post-install web test.

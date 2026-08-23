@@ -1,6 +1,6 @@
 (() => {
-  if (window.__focusLockV73Installed) return;
-  window.__focusLockV73Installed = true;
+  if (window.__focusLockV760Installed) return;
+  window.__focusLockV760Installed = true;
   let interactionCounter = 0;
   let lastUserActivityUnixMs = 0;
   let lastMediaTimes = new WeakMap();

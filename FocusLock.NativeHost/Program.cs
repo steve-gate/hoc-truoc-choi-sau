@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using System.IO.Pipes;
-using System.Runtime.InteropServices;
+﻿using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using FocusLock.Shared.Protocol;
@@ -11,17 +9,6 @@ internal static class Program
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly string AllowedOrigin = $"chrome-extension://{PipeNames.BrowserExtensionId}/";
-
-    private static long _lastNativeContextTick;
-    private static string _lastNativeUrl = "";
-    private static bool _lastNativeForeground;
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
 
     public static async Task<int> Main(string[] args)
     {
@@ -55,33 +42,19 @@ internal static class Program
                     continue;
                 }
 
-                var browser = GetString(root, "browser");
-                var url = GetString(root, "url");
-                var nativeForeground = IsBrowserForeground(browser);
-                var activeElapsedMilliseconds = MeasureVerifiedElapsedMilliseconds(url, nativeForeground);
-
                 var sample = new BrowserContextSample
                 {
-                    Browser = browser,
-                    Url = url,
+                    Browser = GetString(root, "browser"),
+                    Url = GetString(root, "url"),
                     Title = GetString(root, "title"),
                     Host = GetString(root, "host"),
-
-                    // IMPORTANT: extension window.focused is not trusted here.
-                    // NativeHost is a normal user-session process, so it can verify
-                    // the actual Win32 foreground window directly.
-                    WindowFocused = nativeForeground,
-
+                    WindowFocused = GetBool(root, "windowFocused"),
                     ExtensionVersion = GetString(root, "extensionVersion"),
                     DocumentVisible = GetBool(root, "documentVisible"),
                     InteractionCounter = GetLong(root, "interactionCounter"),
                     LastUserActivityUnixMs = GetLong(root, "lastUserActivityUnixMs"),
                     MediaPlaying = GetBool(root, "mediaPlaying"),
                     MediaProgressing = GetBool(root, "mediaProgressing"),
-
-                    // Also ignore extension elapsed timing. NativeHost measures the
-                    // elapsed foreground time with a monotonic Stopwatch.
-                    ActiveElapsedMilliseconds = activeElapsedMilliseconds,
                     ObservedUtc = DateTime.UtcNow
                 };
 
@@ -106,11 +79,7 @@ internal static class Program
                     url = d?.Url ?? sample.Url,
                     message = response?.Message ?? "FocusLock Guard chưa phản hồi.",
                     entertainmentBalanceSeconds = d?.EntertainmentBalanceSeconds ?? 0,
-                    focusProgressSeconds = d?.FocusProgressSeconds ?? 0,
-                    profileName = d?.ProfileName ?? "",
-                    accessMode = d?.AccessMode ?? "",
-                    allowanceRemainingSeconds = d?.AllowanceRemainingSeconds ?? 0,
-                    accountedSeconds = d?.AccountedSeconds ?? 0
+                    focusProgressSeconds = d?.FocusProgressSeconds ?? 0
                 });
             }
 
@@ -121,52 +90,6 @@ internal static class Program
             try { Console.Error.WriteLine(ex); } catch { }
             return 1;
         }
-    }
-
-    private static bool IsBrowserForeground(string browser)
-    {
-        try
-        {
-            var hwnd = GetForegroundWindow();
-            if (hwnd == IntPtr.Zero) return false;
-
-            _ = GetWindowThreadProcessId(hwnd, out var pid);
-            if (pid == 0) return false;
-
-            using var process = Process.GetProcessById((int)pid);
-            var processName = process.ProcessName;
-
-            browser = (browser ?? "").Trim().ToLowerInvariant();
-            if (browser.Contains("edge") || browser.Contains("edg"))
-                return processName.Equals("msedge", StringComparison.OrdinalIgnoreCase);
-
-            return processName.Equals("chrome", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static int MeasureVerifiedElapsedMilliseconds(string url, bool nativeForeground)
-    {
-        var tick = Stopwatch.GetTimestamp();
-        var elapsedMs = 0;
-
-        if (_lastNativeContextTick != 0 &&
-            nativeForeground &&
-            _lastNativeForeground &&
-            string.Equals(_lastNativeUrl, url, StringComparison.Ordinal))
-        {
-            var seconds = (tick - _lastNativeContextTick) / (double)Stopwatch.Frequency;
-            if (seconds > 0 && seconds <= 3.0)
-                elapsedMs = (int)Math.Clamp(Math.Round(seconds * 1000.0), 0, 2500);
-        }
-
-        _lastNativeContextTick = tick;
-        _lastNativeForeground = nativeForeground;
-        _lastNativeUrl = url ?? "";
-        return elapsedMs;
     }
 
     private static async Task<PipeResponse?> SendToGuardAsync(PipeRequest request)
@@ -223,13 +146,6 @@ internal static class Program
 
     private static bool GetBool(JsonElement root, string name) =>
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
-
-    private static int GetInt(JsonElement root, string name)
-    {
-        if (!root.TryGetProperty(name, out var value)) return 0;
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n)) return n;
-        return 0;
-    }
 
     private static long GetLong(JsonElement root, string name)
     {

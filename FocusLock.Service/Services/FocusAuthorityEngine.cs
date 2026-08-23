@@ -1,8 +1,10 @@
-﻿using System.Diagnostics;
+﻿using System.Text;
+using System.Diagnostics;
 using System.Text.Json;
 using FocusLock.Shared.Models;
 using FocusLock.Shared.Protocol;
 
+using FocusLock.Shared.Utilities;
 namespace FocusLock.Service.Services;
 
 public sealed class FocusAuthorityEngine
@@ -64,7 +66,7 @@ public sealed class FocusAuthorityEngine
         _store = store;
         _state = store.Load();
         NormalizeState();
-        AddAudit("Service", "FocusLock Guard V7.5.6 khởi động · NativeHost Win32 foreground accounting cho website.");
+        AddAudit("Service", "FocusLock Guard V7.6.7 khởi động · shared challenge comparer.");
     }
 
     public PipeResponse Handle(PipeRequest request)
@@ -420,14 +422,24 @@ public sealed class FocusAuthorityEngine
         var isBrowserTracked = tracked.Id.StartsWith("browser:", StringComparison.Ordinal);
         var isBrowserFocus = tracked.Category == AppCategory.Focus && isBrowserTracked;
 
-        // V7.5.6: Browser timing is authoritative in HandleBrowserContext(), where
-        // NativeHost verifies the actual Win32 foreground window in the user session.
-        // The desktop agent must never credit/debit browser time, otherwise a stale
-        // desktop foreground sample could double-charge or freeze browser accounting.
+
+        // Browser time is accounted directly from Extension BrowserContext reports.
+        // Desktop activity may still identify the browser, but must NEVER add/subtract
+        // browser seconds here, otherwise time can be double-counted.
         if (isBrowserTracked)
         {
             if (tracked.Category == AppCategory.Focus)
-                ClearEntertainmentContextUnsafe();
+            {
+                _currentMode = BrowserFocusQualifiedUnsafe(DateTime.UtcNow)
+                    ? (_browserMediaQualified ? "Đang học trên web (media đang phát)" : "Đang học trên web")
+                    : "Focus web tạm dừng (chờ tương tác)";
+            }
+            else
+            {
+                _currentMode = _currentBrowserBlocked
+                    ? "Giải trí web đang bị khóa"
+                    : "Đang giải trí trên web";
+            }
             return;
         }
 
@@ -509,7 +521,7 @@ public sealed class FocusAuthorityEngine
     private bool FocusActivityQualifies(bool isBrowserFocus = false)
     {
         if (!_state.Settings.AntiCheatEnabled) return true;
-        if (isBrowserFocus && (_browserMediaQualified || _browserEngagedUntilUtc > DateTime.UtcNow)) return true;
+        if (isBrowserFocus && _browserMediaQualified) return true;
         var events = _activityEvents.Count + (isBrowserFocus ? _browserActivityEvents.Count : 0);
         return events >= Math.Max(1, _state.Settings.MinimumActivityEventsPerMinute);
     }
@@ -561,7 +573,6 @@ public sealed class FocusAuthorityEngine
         sample.ObservedUtc = DateTime.UtcNow;
 
         var now = DateTime.UtcNow;
-        var browserForegroundVerified = sample.WindowFocused || BrowserForegroundActiveUnsafe(sample.Browser);
         while (_browserActivityEvents.Count > 0 && (now - _browserActivityEvents.Peek()).TotalSeconds > 60)
             _browserActivityEvents.Dequeue();
 
@@ -598,7 +609,7 @@ public sealed class FocusAuthorityEngine
             catch { }
         }
 
-        _browserMediaQualified = browserForegroundVerified && sample.DocumentVisible &&
+        _browserMediaQualified = sample.WindowFocused && sample.DocumentVisible &&
                                  sample.MediaPlaying && sample.MediaProgressing;
         if (_browserMediaQualified) _browserEngagedUntilUtc = now.AddSeconds(5);
 
@@ -611,7 +622,7 @@ public sealed class FocusAuthorityEngine
         _currentBrowserRule = rule?.DisplayName ?? "—";
 
         var browserFocusOk = rule?.Category == AppCategory.Focus &&
-                             browserForegroundVerified &&
+                             sample.WindowFocused &&
                              sample.DocumentVisible &&
                              BrowserFocusQualifiedUnsafe(now);
 
@@ -622,15 +633,6 @@ public sealed class FocusAuthorityEngine
         {
             _currentBrowserBlocked = rule?.Category != AppCategory.Focus;
             if (_currentBrowserBlocked) browserBlockReason = "Focus-only đang bật";
-            if (rule?.Category == AppCategory.Entertainment && browserForegroundVerified)
-            {
-                var policyApp = BrowserRuleAsTrackedAppUnsafe(rule, sample);
-                var profile = FindProfileUnsafe(policyApp);
-                _currentBrowserProfile = profile?.Name ?? "Không có profile";
-                _currentBrowserAllowanceRemainingSeconds = profile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(profile);
-                _currentBrowserAccess = AccessModeShortLabel(EntertainmentAccess.Blocked);
-                SetEntertainmentContextUnsafe(policyApp, EntertainmentAccess.Blocked);
-            }
         }
         else if (rule?.Category == AppCategory.Entertainment)
         {
@@ -638,99 +640,94 @@ public sealed class FocusAuthorityEngine
             var profile = FindProfileUnsafe(policyApp);
             _currentBrowserProfile = profile?.Name ?? "Không có profile";
             _currentBrowserAllowanceRemainingSeconds = profile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(profile);
-            access = GetEntertainmentAccessUnsafe(policyApp, out browserBlockReason);
+            access = GetEntertainmentAccessUnsafe(policyApp, out browserBlockReason, requireAgentHeartbeat: false);
             _currentBrowserAccess = AccessModeShortLabel(access);
             _currentBrowserBlocked = access == EntertainmentAccess.Blocked;
-            if (browserForegroundVerified)
-            {
-                SetEntertainmentContextUnsafe(policyApp, _currentBrowserBlocked ? EntertainmentAccess.Blocked : access);
-                _currentMode = _currentBrowserBlocked
-                    ? $"Giải trí web đang bị khóa · {browserBlockReason}"
-                    : AccessModeLabel(access).Replace("Đang giải trí", "Đang giải trí trên web");
-                _currentApp = policyApp.Name;
-            }
         }
         else
         {
-            if (browserForegroundVerified && sample.DocumentVisible) ClearEntertainmentContextUnsafe();
             _currentBrowserProfile = "—";
             _currentBrowserAccess = rule?.Category == AppCategory.Focus ? "Focus" : "—";
             _currentBrowserAllowanceRemainingSeconds = 0;
             _currentBrowserBlocked = false;
         }
 
-        // V7.5.6: NativeHost supplies monotonic elapsed time ONLY while the actual
-        // Win32 foreground window belongs to this browser. Therefore browser time
-        // no longer depends on the desktop-agent heartbeat at all.
-        if (!string.Equals(_lastBrowserAccountingRuleId, rule?.Id ?? "", StringComparison.Ordinal))
-        {
-            _lastBrowserAccountingRuleId = rule?.Id ?? "";
+        // Website time is accounted from the browser heartbeat, not Chrome's
+        // renderer process selected by the desktop agent. Accumulate elapsed time
+        // so extra event-triggered reports cannot credit more than real time.
+        var currentTick = Stopwatch.GetTimestamp();
+        var sameRule = rule is not null && string.Equals(_lastBrowserAccountingRuleId, rule.Id, StringComparison.Ordinal);
+        var fallbackGapSeconds = _lastBrowserAccountingTick == 0
+            ? 0
+            : (currentTick - _lastBrowserAccountingTick) / (double)Stopwatch.Frequency;
+        _lastBrowserAccountingTick = currentTick;
+        _lastBrowserAccountingRuleId = rule?.Id ?? "";
+
+        // V7.3: MV3 service workers may sleep or coalesce timers. The extension now
+        // reports actual foreground+visible elapsed milliseconds. Guard caps it so a
+        // modified/faulty extension cannot credit or debit a large jump in one report.
+        var reportedSeconds = Math.Clamp(sample.ActiveElapsedMilliseconds, 0, 2500) / 1000.0;
+        var elapsedSeconds = reportedSeconds > 0 ? reportedSeconds : fallbackGapSeconds;
+        var canAccount = sameRule && rule is not null && sample.WindowFocused && sample.DocumentVisible &&
+                         elapsedSeconds > 0 && elapsedSeconds <= 2.75;
+        if (canAccount)
+            _browserAccountingCarrySeconds = Math.Min(4.0, _browserAccountingCarrySeconds + elapsedSeconds);
+        else
             _browserAccountingCarrySeconds = 0;
-        }
-
-        var verifiedElapsedSeconds =
-            browserForegroundVerified
-                ? Math.Clamp(sample.ActiveElapsedMilliseconds, 0, 2500) / 1000.0
-                : 0.0;
-
-        _browserAccountingCarrySeconds = Math.Min(
-            3.0,
-            _browserAccountingCarrySeconds + verifiedElapsedSeconds);
 
         var wholeSeconds = (int)Math.Floor(_browserAccountingCarrySeconds);
         if (wholeSeconds > 0)
             _browserAccountingCarrySeconds -= wholeSeconds;
 
-        if (rule is not null && wholeSeconds > 0)
+        if (wholeSeconds > 0 && rule is not null)
         {
-            var trackedBrowser = BrowserRuleAsTrackedAppUnsafe(rule, sample);
-
-            if (rule.Category == AppCategory.Focus)
+            var tracked = BrowserRuleAsTrackedAppUnsafe(rule, sample);
+            if (rule.Category == AppCategory.Focus && browserFocusOk && !_state.ClockRollbackDetected)
             {
-                if (browserFocusOk)
-                {
-                    for (var i = 0; i < wholeSeconds; i++)
-                        CreditFocusSecond(trackedBrowser);
-
-                    ClearEntertainmentContextUnsafe();
-                    _currentMode = _browserMediaQualified
-                        ? "Đang học trên web (media đang phát)"
-                        : "Đang học trên web";
-                    _currentApp = trackedBrowser.Name;
-                }
+                for (var i = 0; i < wholeSeconds; i++) CreditFocusSecond(tracked);
+                _currentMode = _browserMediaQualified
+                    ? "Đang học trên web (media đang phát)"
+                    : "Đang học trên web";
+                _currentApp = tracked.Name;
             }
-            else if (!IsWhitelistSessionActiveUnsafe())
+            else if (rule.Category == AppCategory.Entertainment && !_currentBrowserBlocked)
             {
                 for (var i = 0; i < wholeSeconds; i++)
                 {
-                    var liveAccess = GetEntertainmentAccessUnsafe(trackedBrowser, out var liveReason);
+                    // Re-evaluate each second because allowance/wallet can reach zero.
+                    var liveAccess = GetEntertainmentAccessUnsafe(tracked, out _, requireAgentHeartbeat: false);
                     if (liveAccess == EntertainmentAccess.Blocked)
                     {
                         _currentBrowserBlocked = true;
-                        browserBlockReason = liveReason;
                         break;
                     }
-
-                    ConsumeEntertainmentSecondUnsafe(trackedBrowser, liveAccess);
+                    ConsumeEntertainmentSecondUnsafe(tracked, liveAccess);
                     _state.TotalEntertainmentSeconds++;
-                    RecordUsageSecondUnsafe(trackedBrowser, AppCategory.Entertainment);
+                    RecordUsageSecondUnsafe(tracked, AppCategory.Entertainment);
+                    access = liveAccess;
                 }
-
-                var finalAccess = GetEntertainmentAccessUnsafe(trackedBrowser, out var finalReason);
-                access = finalAccess;
-                _currentBrowserBlocked = finalAccess == EntertainmentAccess.Blocked;
-                _currentBrowserAccess = AccessModeShortLabel(finalAccess);
-
-                var liveProfile = FindProfileUnsafe(trackedBrowser);
+                var finalAccess = GetEntertainmentAccessUnsafe(tracked, out var finalReason, requireAgentHeartbeat: false);
+                if (finalAccess == EntertainmentAccess.Blocked)
+                {
+                    _currentBrowserBlocked = true;
+                    browserBlockReason = finalReason;
+                }
+                else
+                {
+                    access = finalAccess;
+                }
+                var liveProfile = FindProfileUnsafe(tracked);
                 _currentBrowserProfile = liveProfile?.Name ?? "Không có profile";
-                _currentBrowserAllowanceRemainingSeconds =
-                    liveProfile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(liveProfile);
-
-                SetEntertainmentContextUnsafe(trackedBrowser, finalAccess);
+                _currentBrowserAllowanceRemainingSeconds = liveProfile is null ? 0 : GetAllowanceRemainingSecondsUnsafe(liveProfile);
+                _currentBrowserAccess = AccessModeShortLabel(_currentBrowserBlocked ? EntertainmentAccess.Blocked : access);
                 _currentMode = _currentBrowserBlocked
-                    ? $"Giải trí web đang bị khóa · {finalReason}"
-                    : AccessModeLabel(finalAccess).Replace("Đang giải trí", "Đang giải trí trên web");
-                _currentApp = trackedBrowser.Name;
+                    ? "Giải trí web đang bị khóa"
+                    : AccessModeLabel(access).Replace("Đang giải trí", "Đang giải trí trên web");
+                _currentApp = tracked.Name;
+            }
+            else
+            {
+                _browserAccountingCarrySeconds = 0;
             }
         }
 
@@ -804,10 +801,15 @@ public sealed class FocusAuthorityEngine
 
     private TrackedApp? ResolveBrowserTrackedUnsafe(string processName, string path)
     {
-        if (!_state.Settings.BrowserRulesEnabled || !BrowserBridgeHealthyUnsafe() || _browserContext is null ||
-            !BrowserForegroundActiveUnsafe(_browserContext.Browser))
+        if (!_state.Settings.BrowserRulesEnabled ||
+            !BrowserBridgeHealthyUnsafe() ||
+            _browserContext is null ||
+            !_browserContext.WindowFocused ||
+            !_browserContext.DocumentVisible)
             return null;
-        if (!BrowserMatchesProcess(_browserContext.Browser, processName)) return null;
+
+        if (!BrowserMatchesProcess(_browserContext.Browser, processName))
+            return null;
 
         var rule = FindBrowserRuleUnsafe(_browserContext.Url, _browserContext.Title);
         if (rule is null) return null;
@@ -895,19 +897,53 @@ public sealed class FocusAuthorityEngine
 
     private static bool IsSupportedBrowserProcess(string processName) =>
         processName.Equals("chrome", StringComparison.OrdinalIgnoreCase) ||
-        processName.Equals("msedge", StringComparison.OrdinalIgnoreCase);
+        processName.Equals("msedge", StringComparison.OrdinalIgnoreCase) ||
+        processName.Equals("browser", StringComparison.OrdinalIgnoreCase) ||
+        processName.Equals("brave", StringComparison.OrdinalIgnoreCase) ||
+        processName.Equals("vivaldi", StringComparison.OrdinalIgnoreCase) ||
+        processName.Equals("opera", StringComparison.OrdinalIgnoreCase) ||
+        processName.Equals("opera_gx", StringComparison.OrdinalIgnoreCase);
 
-    private static bool BrowserMatchesProcess(string browser, string processName) =>
-        (browser == "chrome" && processName.Equals("chrome", StringComparison.OrdinalIgnoreCase)) ||
-        (browser == "edge" && processName.Equals("msedge", StringComparison.OrdinalIgnoreCase));
+    private static bool BrowserMatchesProcess(string browser, string processName)
+    {
+        browser = NormalizeBrowserName(browser);
+        processName = (processName ?? "").Trim().ToLowerInvariant();
+
+        return browser switch
+        {
+            "coccoc" => processName == "browser",
+            "edge" => processName == "msedge",
+            "brave" => processName == "brave",
+            "vivaldi" => processName == "vivaldi",
+            "opera" => processName is "opera" or "opera_gx",
+
+            // Older Cốc Cốc extension builds identify themselves as Chrome.
+            // browser.exe must still resolve to the active web rule.
+            _ => processName is "chrome" or "browser"
+        };
+    }
 
     private static string NormalizeBrowserName(string browser)
     {
         browser = (browser ?? "").Trim().ToLowerInvariant();
-        return browser.Contains("edge") || browser.Contains("edg") ? "edge" : "chrome";
+        if (browser.Contains("coccoc") || browser.Contains("coc_coc")) return "coccoc";
+        if (browser.Contains("edge") || browser.Contains("edg")) return "edge";
+        if (browser.Contains("brave")) return "brave";
+        if (browser.Contains("vivaldi")) return "vivaldi";
+        if (browser.Contains("opera")) return "opera";
+        return "chrome";
     }
 
-    private static string BrowserDisplayName(string browser) => NormalizeBrowserName(browser) == "edge" ? "Edge" : "Chrome";
+    private static string BrowserDisplayName(string browser) =>
+        NormalizeBrowserName(browser) switch
+        {
+            "coccoc" => "Cốc Cốc",
+            "edge" => "Edge",
+            "brave" => "Brave",
+            "vivaldi" => "Vivaldi",
+            "opera" => "Opera",
+            _ => "Chrome"
+        };
     private static string TrimTo(string? value, int max) => string.IsNullOrEmpty(value) ? "" : value.Length <= max ? value : value[..max];
 
     private TrackedApp? FindTracked(string processName, string path)
@@ -959,7 +995,8 @@ public sealed class FocusAuthorityEngine
         app.Id = string.IsNullOrWhiteSpace(app.Id) ? Guid.NewGuid().ToString("N") : app.Id;
         if (app.Category == AppCategory.Entertainment)
         {
-            var profile = GetDefaultBlockProfileUnsafe();
+            var requestedProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == app.BlockProfileId);
+            var profile = requestedProfile ?? GetDefaultBlockProfileUnsafe();
             app.BlockProfileId = profile.Id;
             app.BlockProfileName = profile.Name;
         }
@@ -1154,7 +1191,7 @@ public sealed class FocusAuthorityEngine
     {
         var policy = _state.ControlPolicy;
         if (policy.SettingsTextProtectionActive)
-            throw new InvalidOperationException("Bảo vệ cài đặt đang bật. Muốn sửa cấu hình phải gõ đúng đoạn xác nhận trong mục Kiểm soát.");
+            throw new InvalidOperationException("Bảo vệ cài đặt đang bật. Muốn thêm/sửa app, website, profile hoặc cài đặt, hãy mở khóa trong mục Cài đặt.");
         if (policy.SettingsTimeProtectionActive)
         {
             var until = policy.SettingsProtectionUntilUtc!.Value.ToLocalTime();
@@ -1198,9 +1235,9 @@ public sealed class FocusAuthorityEngine
         if (!policy.SettingsTextProtectionActive)
             throw new InvalidOperationException("Bảo vệ bằng đoạn văn hiện không hoạt động.");
 
-        static string Normalize(string value) => value.Replace("\r\n", "\n").Trim();
-        if (!string.Equals(Normalize(typed ?? ""), Normalize(policy.SettingsUnlockChallenge), StringComparison.Ordinal))
-            throw new InvalidOperationException("Đoạn xác nhận chưa chính xác. Hãy gõ đầy đủ, đúng từng ký tự.");
+        if (!SettingsChallengeComparer.IsMatch(policy.SettingsUnlockChallenge, typed))
+            throw new InvalidOperationException(
+                "Đoạn xác nhận chưa khớp. Hãy sửa các ký tự màu đỏ trên màn hình; không phân biệt hoa/thường và bỏ qua khác biệt khoảng trắng/xuống dòng.");
 
         policy.SettingsProtectionMode = SettingsProtectionMode.Off;
         policy.SettingsUnlockChallenge = "";
@@ -1208,7 +1245,7 @@ public sealed class FocusAuthorityEngine
         policy.SettingsProtectionUntilUtc = null;
         AddAudit("Protection", "Đã gỡ bảo vệ cài đặt bằng đoạn văn xác nhận.");
         _store.Save(_state);
-        return "Đã mở khóa thay đổi cấu hình.";
+        return "Đã mở khóa thay đổi cấu hình. Bây giờ có thể thêm/sửa app, website, profile và cài đặt.";
     }
 
     private string EnableSettingsTimeProtection(DateTime? startUtc, DateTime? untilUtc)
@@ -1374,7 +1411,10 @@ public sealed class FocusAuthorityEngine
     private bool ShouldLockEntertainmentAppUnsafe(TrackedApp app, out string reason) =>
         GetEntertainmentAccessUnsafe(app, out reason) == EntertainmentAccess.Blocked;
 
-    private EntertainmentAccess GetEntertainmentAccessUnsafe(TrackedApp app, out string reason)
+    private EntertainmentAccess GetEntertainmentAccessUnsafe(
+        TrackedApp app,
+        out string reason,
+        bool requireAgentHeartbeat = true)
     {
         reason = "";
 
@@ -1389,7 +1429,7 @@ public sealed class FocusAuthorityEngine
             reason = "thay đổi giờ hệ thống";
             return EntertainmentAccess.Blocked;
         }
-        if (!HeartbeatHealthyUnsafe())
+        if (requireAgentHeartbeat && !HeartbeatHealthyUnsafe())
         {
             reason = "mất heartbeat";
             return EntertainmentAccess.Blocked;
@@ -1652,7 +1692,8 @@ public sealed class FocusAuthorityEngine
         rule.Enabled = true;
         if (rule.Category == AppCategory.Entertainment)
         {
-            var profile = GetDefaultBlockProfileUnsafe();
+            var requestedProfile = _state.BlockProfiles.FirstOrDefault(p => p.Id == rule.BlockProfileId);
+            var profile = requestedProfile ?? GetDefaultBlockProfileUnsafe();
             rule.BlockProfileId = profile.Id;
             rule.BlockProfileName = profile.Name;
         }
@@ -1835,7 +1876,7 @@ public sealed class FocusAuthorityEngine
             BrowserMediaProgressing = _browserContext?.MediaProgressing == true,
             BrowserFocusQualified = _currentBrowserCategory == "Focus" && _browserContext is not null &&
                                     BrowserForegroundActiveUnsafe(_browserContext.Browser) &&
-                                    _browserContext.DocumentVisible && BrowserFocusQualifiedUnsafe(DateTime.UtcNow),
+                                    BrowserFocusQualifiedUnsafe(DateTime.UtcNow),
             BrowserActivityEventsLastMinute = _browserActivityEvents.Count,
             State = clone,
             Analytics = BuildAnalyticsUnsafe(),

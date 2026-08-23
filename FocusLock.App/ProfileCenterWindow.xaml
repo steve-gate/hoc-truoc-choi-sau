@@ -38,7 +38,7 @@
                     <StackPanel>
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Left"><TextBlock x:Name="SelectedNameText" Text="Chọn một Profile" FontSize="23" FontWeight="Bold"/><TextBlock x:Name="SelectedStatusText" Text="—" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,0"/></StackPanel>
-                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource PrimaryButton}" Content="Quản lý policy + thành viên" Click="EditSelected_Click" Margin="0,0,6,0"/><Button Content="Bật/Tắt" Click="ToggleSelected_Click" Margin="0,0,6,0"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" Click="DeleteSelected_Click"/></StackPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource PrimaryButton}" Content="Chỉnh chính sách" Click="EditSelected_Click" Margin="0,0,6,0"/><Button Content="Bật/Tắt" Click="ToggleSelected_Click" Margin="0,0,6,0"/><Button Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa" Click="DeleteSelected_Click"/></StackPanel>
                         </DockPanel>
 
                         <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -46,11 +46,47 @@
                             <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="7,0,0,0"><StackPanel><TextBlock Text="CÁCH KHÓA APP" Foreground="{StaticResource MutedBrush}" FontSize="11" FontWeight="Bold"/><TextBlock x:Name="BlockActionText" Text="—" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock Text="Website luôn bị khóa ngay trên tab; không đóng tab và tự mở khóa khi Profile cho phép trở lại." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Border>
                         </Grid>
 
-                        <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <StackPanel Margin="0,0,7,0"><TextBlock x:Name="AppsHeaderText" Text="Ứng dụng giải trí" FontWeight="Bold" Margin="0,0,0,8"/><ListBox x:Name="AppsMembersList" Height="270"/></StackPanel>
-                            <StackPanel Grid.Column="1" Margin="7,0,0,0"><TextBlock x:Name="WebHeaderText" Text="Website giải trí" FontWeight="Bold" Margin="0,0,0,8"/><ListBox x:Name="WebMembersList" Height="270"/></StackPanel>
+                        <Grid Margin="0,18,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="0,0,7,0">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,10">
+                                        <TextBlock x:Name="AppsHeaderText" Text="Ứng dụng giải trí" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                            <Button Content="+ App đang chạy" Click="AddRunningApp_Click" Margin="0,0,6,0"/>
+                                            <Button Content="+ Chọn .exe" Click="AddExeApp_Click"/>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Text="Thêm trực tiếp vào Profile này. App đã có ở Profile khác sẽ được chuyển sang đây."
+                                               Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                    <ListBox x:Name="AppsMembersList" Height="280"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="14" Margin="7,0,0,0">
+                                <StackPanel>
+                                    <TextBlock x:Name="WebHeaderText" Text="Website giải trí" FontWeight="Bold"/>
+                                    <TextBlock Text="Nhập domain như youtube.com, genk.vn... hoặc lấy website đang mở."
+                                               Foreground="{StaticResource MutedBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,5,0,8"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="NewWebsiteBox" ToolTip="Ví dụ youtube.com"/>
+                                        <Button Grid.Column="1" Content="+ Thêm" Click="AddWebsite_Click" Margin="7,0,0,0"/>
+                                    </Grid>
+                                    <Button Content="Dùng website đang mở" Click="UseCurrentWebsite_Click"
+                                            HorizontalAlignment="Left" Margin="0,7,0,10"/>
+                                    <ListBox x:Name="WebMembersList" Height="220"/>
+                                </StackPanel>
+                            </Border>
                         </Grid>
-                        <TextBlock Text="Muốn chuyển App/Website giữa các Profile: bấm ‘Quản lý policy + thành viên’ rồi đánh dấu thành viên. Một mục chỉ thuộc một Profile." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                        <TextBlock Text="Thêm App/Website ngay tại Profile đang chọn. Nếu mục đã thuộc Profile khác, FocusLock sẽ chuyển thẳng mục đó sang Profile này." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
