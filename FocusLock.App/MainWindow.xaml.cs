@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private string _focusSessionProfileFingerprint = "";
     private System.Windows.Forms.NotifyIcon? _trayIcon;
     private System.Windows.Forms.ContextMenuStrip? _trayMenu;
+    private System.Windows.Forms.ToolStripItem? _trayExitItem;
     private bool _allowExit;
 
     private sealed class ProfileCardViewModel
@@ -98,7 +99,7 @@ public partial class MainWindow : Window
             _trayMenu.Items.Add("Mở FocusLock", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
             _trayMenu.Items.Add("Ẩn cửa sổ", null, (_, _) => Dispatcher.Invoke(HideToTray));
             _trayMenu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-            _trayMenu.Items.Add("Thoát hoàn toàn", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
+            _trayExitItem = _trayMenu.Items.Add("Thoát hoàn toàn", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
 
             _trayIcon = new System.Windows.Forms.NotifyIcon
             {
@@ -117,11 +118,23 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        if (!_allowExit && (_snapshot?.State.Settings.MinimizeToTray ?? true))
+        if (!_allowExit)
         {
-            e.Cancel = true;
-            HideToTray();
-            return;
+            var active = GetActiveExitProtection();
+            if (active is not null)
+            {
+                e.Cancel = true;
+                HideToTray();
+                ShowExitProtectionBlocked(active);
+                return;
+            }
+
+            if (_snapshot?.State.Settings.MinimizeToTray ?? true)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
         }
 
         try { _timer.Stop(); } catch { }
@@ -135,6 +148,7 @@ public partial class MainWindow : Window
         }
         _trayMenu?.Dispose();
         _trayMenu = null;
+        _trayExitItem = null;
     }
 
     private void HideToTray()
@@ -157,9 +171,50 @@ public partial class MainWindow : Window
 
     private void ExitFromTray()
     {
+        var active = GetActiveExitProtection();
+        if (active is not null)
+        {
+            ShowExitProtectionBlocked(active);
+            return;
+        }
+
         _allowExit = true;
         Close();
         System.Windows.Application.Current.Shutdown();
+    }
+
+    private ExitProtectionSchedule? GetActiveExitProtection()
+    {
+        var schedules = _snapshot?.State.ControlPolicy.ExitProtectionSchedules;
+        if (schedules is null) return null;
+        var localNow = DateTime.Now;
+        var utcNow = DateTime.UtcNow;
+        return schedules.Where(x => x.Enabled && x.IsActive(localNow, utcNow))
+            .OrderByDescending(x => x.GetActiveUntilLocal(localNow, utcNow) ?? DateTime.MaxValue)
+            .ThenBy(x => x.CreatedUtc)
+            .FirstOrDefault();
+    }
+
+    private void ShowExitProtectionBlocked(ExitProtectionSchedule active)
+    {
+        var until = active.GetActiveUntilLocal(DateTime.Now, DateTime.UtcNow);
+        var message = until is DateTime value
+            ? $"FocusLock đang trong khung giờ không thể tắt: {active.Name}.\n\nCó thể thoát sau {value:dd/MM/yyyy HH:mm}."
+            : $"FocusLock đang trong khung giờ không thể tắt: {active.Name}.";
+
+        try
+        {
+            if (_trayIcon is not null)
+            {
+                _trayIcon.BalloonTipTitle = "FocusLock đang được bảo vệ";
+                _trayIcon.BalloonTipText = message.Replace("\n", " ");
+                _trayIcon.ShowBalloonTip(3500);
+                return;
+            }
+        }
+        catch { }
+
+        MessageBox.Show(this, message, "Không thể thoát FocusLock", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async Task StartAsync()
@@ -1157,6 +1212,20 @@ public partial class MainWindow : Window
         FooterText.Text = response.Message;
     }
 
+    private void OpenExitProtection_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new ExitProtectionWindow { Owner = this };
+        window.ShowDialog();
+        _ = RefreshSnapshotAfterDialogAsync();
+    }
+
+    private async Task RefreshSnapshotAfterDialogAsync()
+    {
+        var response = await _client.SendAsync(new PipeRequest { Command = "snapshot" });
+        ApplyResponse(response);
+        FooterText.Text = response.Message;
+    }
+
     private async void EnableStrict_Click(object sender, RoutedEventArgs e)
     {
         if (!TryPositiveInt(StrictDelayBox.Text, out var minutes) || minutes > 1440)
@@ -1420,6 +1489,29 @@ public partial class MainWindow : Window
         var policy = state.ControlPolicy ?? new ControlPolicy();
         var now = DateTime.UtcNow;
 
+        var activeExitProtection = policy.ExitProtectionSchedules
+            .Where(x => x.Enabled && x.IsActive(DateTime.Now, now))
+            .OrderByDescending(x => x.GetActiveUntilLocal(DateTime.Now, now) ?? DateTime.MaxValue)
+            .ThenBy(x => x.CreatedUtc)
+            .FirstOrDefault();
+        ExitProtectionCountText.Text = $"{policy.ExitProtectionSchedules.Count} lịch đã tạo · một lần / hàng ngày / theo thứ";
+        if (activeExitProtection is not null)
+        {
+            var until = activeExitProtection.GetActiveUntilLocal(DateTime.Now, now);
+            ExitProtectionStatusText.Text = until is DateTime value
+                ? $"🔒 {activeExitProtection.Name} · không thể thoát tới {value:dd/MM HH:mm}"
+                : $"🔒 {activeExitProtection.Name} · đang khóa thoát";
+        }
+        else
+        {
+            var enabledCount = policy.ExitProtectionSchedules.Count(x => x.Enabled);
+            ExitProtectionStatusText.Text = enabledCount > 0
+                ? $"◷ Chưa tới khung khóa · {enabledCount} lịch đang bật"
+                : "○ Chưa có lịch đang khóa thoát";
+        }
+        if (_trayExitItem is not null)
+            _trayExitItem.Text = activeExitProtection is null ? "Thoát hoàn toàn" : "🔒 Không thể thoát lúc này";
+
         var textProtection = policy.SettingsTextProtectionActive;
         var timeProtection = policy.SettingsTimeProtectionActive;
         var timeConfigured = policy.SettingsProtectionMode == SettingsProtectionMode.TimeWindow &&
@@ -1487,7 +1579,7 @@ public partial class MainWindow : Window
         RefreshFocusSessionProfileOptions(state);
 
         var focusSessionActive = policy.FocusSessionActive;
-        var configurationLocked = policy.SettingsProtectionActive || policy.StrictModeEnabled || focusSessionActive || policy.LockedSessionActive || policy.WhitelistSessionActive;
+        var configurationLocked = policy.ExitProtectionActive || policy.SettingsProtectionActive || policy.StrictModeEnabled || focusSessionActive || policy.LockedSessionActive || policy.WhitelistSessionActive;
         BasicSettingsPanel.IsEnabled = !configurationLocked;
         ProfilePolicyItems.IsEnabled = !configurationLocked;
         var cooldownRestoreLocked = state.BlockProfiles.Any(x => x.CooldownActive);
@@ -1849,6 +1941,82 @@ public partial class MainWindow : Window
                 RestoreBackupButton.IsEnabled = true;
             }
         }
+    }
+
+    // OneDir cleanup ---------------------------------------------------------------
+    private async void CleanupOldOneDir_Click(object sender, RoutedEventArgs e)
+    {
+        var root = OneDirBootstrapper.GetRootDirectory();
+        var script = Path.Combine(root, "Cleanup-Old-OneDir.ps1");
+        var report = Path.Combine(root, "Logs", "onedir-cleanup-last.txt");
+
+        if (!File.Exists(script))
+        {
+            CleanupOldOneDirStatusText.Text = "✕ Thiếu Cleanup-Old-OneDir.ps1.";
+            MessageBox.Show(this, "Thiếu Cleanup-Old-OneDir.ps1 trong thư mục OneDir hiện tại. Hãy build/copy lại đầy đủ V7.8.0.2.", "Không thể dọn bản cũ", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            "FocusLock sẽ tìm các thư mục FocusLock-OneDir cũ nằm cạnh bản hiện tại.\n\nChỉ thư mục không còn được Service, Native Host, watchdog hoặc tiến trình đang chạy sử dụng mới được xóa. File .focuslockbackup sẽ được giữ lại trước khi xóa.\n\nWindows sẽ hỏi quyền Administrator. Tiếp tục?",
+            "Dọn bản OneDir cũ",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        try
+        {
+            CleanupOldOneDirButton.IsEnabled = false;
+            CleanupOldOneDirStatusText.Text = "Đang kiểm tra các bản OneDir cũ…";
+            Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+            try { if (File.Exists(report)) File.Delete(report); } catch { }
+
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{script}\"",
+                WorkingDirectory = root,
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Normal
+            });
+            if (process is null) throw new InvalidOperationException("Không thể mở công cụ dọn OneDir.");
+
+            await process.WaitForExitAsync();
+            var text = File.Exists(report)
+                ? await File.ReadAllTextAsync(report)
+                : $"Công cụ dọn kết thúc với mã {process.ExitCode}, nhưng không tạo báo cáo.";
+
+            CleanupOldOneDirStatusText.Text = text.Replace("\r", " ").Replace("\n", " · ").Trim();
+            MessageBox.Show(
+                this,
+                text,
+                process.ExitCode == 0 ? "Dọn OneDir hoàn tất" : "Dọn OneDir cần kiểm tra",
+                MessageBoxButton.OK,
+                process.ExitCode == 0 ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            CleanupOldOneDirStatusText.Text = "Đã hủy yêu cầu quyền Administrator.";
+        }
+        catch (Exception ex)
+        {
+            AppCrashLogger.Exception("CleanupOldOneDir", ex);
+            CleanupOldOneDirStatusText.Text = "✕ Không thể dọn bản OneDir cũ.";
+            MessageBox.Show(this, ex.Message, "Dọn OneDir thất bại", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            CleanupOldOneDirButton.IsEnabled = true;
+        }
+    }
+
+    private void OpenCurrentOneDir_Click(object sender, RoutedEventArgs e)
+    {
+        var root = OneDirBootstrapper.GetRootDirectory();
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{root}\"") { UseShellExecute = true });
     }
 
     // Settings --------------------------------------------------------------------

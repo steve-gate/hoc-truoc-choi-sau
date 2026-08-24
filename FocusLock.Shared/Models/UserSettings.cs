@@ -1,4 +1,4 @@
-﻿namespace FocusLock.Shared.Models;
+namespace FocusLock.Shared.Models;
 
 public sealed class UserSettings
 {

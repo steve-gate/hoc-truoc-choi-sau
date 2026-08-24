@@ -1,4 +1,4 @@
-﻿namespace FocusLock.Shared.Protocol;
+namespace FocusLock.Shared.Protocol;
 
 public sealed class BrowserDecision
 {

@@ -1,4 +1,4 @@
-﻿using FocusLock.Shared.Models;
+using FocusLock.Shared.Models;
 
 namespace FocusLock.Shared.Protocol;
 
@@ -33,4 +33,8 @@ public sealed class PipeRequest
 
     // V7.7.8 Backup / Restore. The desktop app chooses the path; Guard performs the signed state operation.
     public string? FilePath { get; set; }
+
+    // V7.8 protected run windows. Guard owns validation and persistence.
+    public ExitProtectionSchedule? ExitProtectionSchedule { get; set; }
+    public string? ExitProtectionScheduleId { get; set; }
 }

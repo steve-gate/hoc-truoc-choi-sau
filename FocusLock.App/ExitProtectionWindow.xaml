@@ -1,0 +1,139 @@
+<Window x:Class="FocusLock.App.ExitProtectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FocusLock — Lịch không thể tắt" Width="1040" Height="700"
+        MinWidth="900" MinHeight="600" WindowStartupLocation="CenterOwner">
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Lịch không thể tắt FocusLock" FontSize="28" FontWeight="Bold"/>
+                <TextBlock Text="Tạo nhiều khung giờ. Khi một khung đang hiệu lực, FocusLock không cho thoát và Guard khóa thay đổi cấu hình/lịch cho tới hết khung."
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0" MaxWidth="760"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="+ Lịch mới" Style="{StaticResource PrimaryButton}" Click="NewSchedule_Click" VerticalAlignment="Center"/>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="350"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,10">
+                        <TextBlock Text="Các lịch đã tạo" FontSize="17" FontWeight="Bold"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Làm mới" Click="Refresh_Click"/>
+                    </DockPanel>
+                    <Border x:Name="ActiveWarningBorder" Background="#FFF3E8" BorderBrush="#F2D3B8" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,10" Visibility="Collapsed">
+                        <TextBlock x:Name="ActiveWarningText" Text="Đang khóa thoát" Foreground="#A75C22" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    </Border>
+                    <ListBox x:Name="SchedulesList" SelectionChanged="SchedulesList_SelectionChanged" BorderThickness="0" Background="Transparent" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Margin" Value="0,0,0,8"/>
+                                <Setter Property="Padding" Value="0"/>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="12">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" TextTrimming="CharacterEllipsis" MaxWidth="210"/>
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding TypeLabel}" Foreground="{StaticResource AccentBrush}" FontSize="11"/>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding ScheduleLabel}" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding StatusLabel}" FontWeight="SemiBold" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="EditorPanel">
+                        <TextBlock Text="Thiết lập lịch" FontSize="22" FontWeight="Bold"/>
+                        <TextBlock Text="Lịch có thể qua đêm, ví dụ 22:00 → 06:00. Giờ bắt đầu và kết thúc không được giống nhau."
+                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,14"/>
+
+                        <TextBlock Text="Tên lịch" Style="{StaticResource LabelText}"/>
+                        <TextBox x:Name="NameBox" Text="Không thể tắt FocusLock" MaxLength="80"/>
+
+                        <TextBlock Text="Kiểu lặp" Style="{StaticResource LabelText}" Margin="0,14,0,0"/>
+                        <ComboBox x:Name="TypeCombo" Width="260" HorizontalAlignment="Left" SelectedIndex="1" SelectionChanged="TypeCombo_SelectionChanged">
+                            <ComboBoxItem Content="Một lần — ngày/giờ A → B" Tag="OneTime"/>
+                            <ComboBoxItem Content="Hàng ngày" Tag="Daily"/>
+                            <ComboBoxItem Content="Theo thứ trong tuần" Tag="Weekly"/>
+                        </ComboBox>
+
+                        <StackPanel x:Name="OneTimePanel" Visibility="Collapsed" Margin="0,16,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Bắt đầu" Style="{StaticResource LabelText}"/>
+                                    <DockPanel><DatePicker x:Name="OneTimeStartDate" Width="170"/><TextBox x:Name="OneTimeStartTime" Text="08:00" Width="78" Margin="8,0,0,0"/></DockPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Kết thúc" Style="{StaticResource LabelText}"/>
+                                    <DockPanel><DatePicker x:Name="OneTimeEndDate" Width="170"/><TextBox x:Name="OneTimeEndTime" Text="17:00" Width="78" Margin="8,0,0,0"/></DockPanel>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel x:Name="RecurringPanel" Margin="0,16,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="20"/><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="Từ giờ" Style="{StaticResource LabelText}"/><TextBox x:Name="StartTimeBox" Text="08:00"/></StackPanel>
+                                <StackPanel Grid.Column="2"><TextBlock Text="Đến giờ" Style="{StaticResource LabelText}"/><TextBox x:Name="EndTimeBox" Text="17:00"/></StackPanel>
+                            </Grid>
+
+                            <StackPanel x:Name="WeeklyDaysPanel" Visibility="Collapsed" Margin="0,14,0,0">
+                                <TextBlock Text="Ngày áp dụng" Style="{StaticResource LabelText}"/>
+                                <WrapPanel Margin="0,5,0,0">
+                                    <CheckBox x:Name="MonCheck" Content="T2" IsChecked="True" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="TueCheck" Content="T3" IsChecked="True" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="WedCheck" Content="T4" IsChecked="True" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="ThuCheck" Content="T5" IsChecked="True" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="FriCheck" Content="T6" IsChecked="True" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="SatCheck" Content="T7" Margin="0,0,14,0"/>
+                                    <CheckBox x:Name="SunCheck" Content="CN"/>
+                                </WrapPanel>
+                            </StackPanel>
+
+                            <TextBlock Text="Mẫu nhanh" Style="{StaticResource LabelText}" Margin="0,16,0,0"/>
+                            <WrapPanel Margin="0,5,0,0">
+                                <Button Content="08:00 → 12:00" Tag="08:00|12:00" Click="Preset_Click" Margin="0,0,7,7"/>
+                                <Button Content="13:00 → 17:00" Tag="13:00|17:00" Click="Preset_Click" Margin="0,0,7,7"/>
+                                <Button Content="08:00 → 17:00" Tag="08:00|17:00" Click="Preset_Click" Margin="0,0,7,7"/>
+                                <Button Content="19:00 → 23:00" Tag="19:00|23:00" Click="Preset_Click" Margin="0,0,7,7"/>
+                                <Button Content="22:00 → 06:00" Tag="22:00|06:00" Click="Preset_Click" Margin="0,0,7,7"/>
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <Border Background="#EEF6FF" BorderBrush="#CFE2FA" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,18,0,0">
+                            <TextBlock Text="Khi lịch đã bắt đầu: nút X/Alt+F4 và “Thoát hoàn toàn” bị chặn; lịch và cấu hình không thể sửa/Restore. Guard Service vẫn chạy nền ngay cả khi cửa sổ giao diện bị đóng cưỡng bức. Người có quyền Administrator của Windows vẫn có quyền quản trị hệ thống, nên FocusLock không tuyên bố chống được việc can thiệp hệ thống cấp quản trị."
+                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                        </Border>
+
+                        <WrapPanel Margin="0,18,0,0">
+                            <Button x:Name="SaveButton" Style="{StaticResource PrimaryButton}" Content="Lưu lịch" Click="Save_Click" Margin="0,0,8,0"/>
+                            <Button x:Name="ToggleButton" Content="Bật/Tắt" Click="Toggle_Click" Margin="0,0,8,0"/>
+                            <Button x:Name="DeleteButton" Style="{StaticResource TextButton}" Foreground="{StaticResource DangerBrush}" Content="Xóa lịch" Click="Delete_Click"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <TextBlock x:Name="StatusText" Grid.Row="2" Text="Sẵn sàng" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

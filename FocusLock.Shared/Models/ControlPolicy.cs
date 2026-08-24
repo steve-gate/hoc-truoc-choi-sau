@@ -1,7 +1,22 @@
-﻿namespace FocusLock.Shared.Models;
+using System.Text.Json.Serialization;
+
+namespace FocusLock.Shared.Models;
 
 public sealed class ControlPolicy
 {
+    // V7.8: multiple recurring/one-time windows during which FocusLock cannot be exited.
+    public List<ExitProtectionSchedule> ExitProtectionSchedules { get; set; } = new();
+
+    [JsonIgnore]
+    public ExitProtectionSchedule? ActiveExitProtectionSchedule =>
+        ExitProtectionSchedules
+            .Where(x => x.IsActiveNow)
+            .OrderByDescending(x => x.ActiveUntilLocal ?? DateTime.MaxValue)
+            .FirstOrDefault();
+
+    [JsonIgnore]
+    public bool ExitProtectionActive => ActiveExitProtectionSchedule is not null;
+
     public bool StrictModeEnabled { get; set; }
     public int StrictUnlockDelayMinutes { get; set; } = 30;
     public DateTime? StrictUnlockRequestedUtc { get; set; }

@@ -1,8 +1,8 @@
-﻿namespace FocusLock.Shared.Models;
+namespace FocusLock.Shared.Models;
 
 public sealed class AppState
 {
-    public int SchemaVersion { get; set; } = 17;
+    public int SchemaVersion { get; set; } = 18;
     public List<TrackedApp> Apps { get; set; } = new();
     public List<RewardKey> Keys { get; set; } = new();
     public List<AuditEvent> AuditLog { get; set; } = new();

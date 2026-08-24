@@ -77,7 +77,7 @@ public sealed class FocusAuthorityEngine
         _store = store;
         _state = store.Load();
         NormalizeState();
-        AddAudit("Service", "FocusLock Guard V7.7.9 khởi động · OneDir + Backup/Restore.");
+        AddAudit("Service", "FocusLock Guard V7.8.0.2 khởi động · OneDir + lịch không thể thoát.");
     }
 
     public PipeResponse Handle(PipeRequest request)
@@ -128,6 +128,9 @@ public sealed class FocusAuthorityEngine
                     case "setbrowserprofile": message = SetBrowserProfile(request.BrowserRuleId, request.BlockProfileId); break;
                     case "createbackup": message = CreateBackup(request.FilePath); break;
                     case "restorebackup": message = RestoreBackup(request.FilePath); break;
+                    case "saveexitprotectionschedule": message = SaveExitProtectionSchedule(request.ExitProtectionSchedule); break;
+                    case "removeexitprotectionschedule": message = RemoveExitProtectionSchedule(request.ExitProtectionScheduleId); break;
+                    case "toggleexitprotectionschedule": message = ToggleExitProtectionSchedule(request.ExitProtectionScheduleId); break;
                     case "snapshot": message = "OK"; break;
                     default: throw new InvalidOperationException("Lệnh không được hỗ trợ.");
                 }
@@ -1392,11 +1395,133 @@ public sealed class FocusAuthorityEngine
         "addapp", "removeapp", "toggleapp", "cycleapplock", "cycleappprofile", "setappprofile", "setappblockaction",
         "addblockprofile", "toggleblockprofile", "removeblockprofile", "updateblockprofile",
         "settings", "addbrowserrule", "removebrowserrule", "togglebrowserrule", "cyclebrowserprofile", "setbrowserprofile",
-        "restorebackup"
+        "restorebackup", "saveexitprotectionschedule", "removeexitprotectionschedule", "toggleexitprotectionschedule"
     };
 
     private static bool IsConfigurationMutationCommand(string command) =>
         ConfigurationMutationCommands.Contains(command);
+
+    private ExitProtectionSchedule? ActiveExitProtectionScheduleUnsafe()
+    {
+        var localNow = DateTime.Now;
+        var utcNow = DateTime.UtcNow;
+        return _state.ControlPolicy.ExitProtectionSchedules
+            .Where(x => x.Enabled && x.IsActive(localNow, utcNow))
+            .OrderByDescending(x => x.GetActiveUntilLocal(localNow, utcNow) ?? DateTime.MaxValue)
+            .ThenBy(x => x.CreatedUtc)
+            .FirstOrDefault();
+    }
+
+    private string SaveExitProtectionSchedule(ExitProtectionSchedule? incoming)
+    {
+        if (incoming is null) throw new InvalidOperationException("Thiếu lịch bảo vệ.");
+        if (incoming.Type == ExitProtectionScheduleType.OneTime &&
+            incoming.OneTimeEndUtc is DateTime incomingEnd && incomingEnd.ToUniversalTime() <= DateTime.UtcNow)
+            throw new InvalidOperationException("Khung thời gian này đã kết thúc.");
+
+        var clean = NormalizeExitProtectionSchedule(incoming);
+        var existing = _state.ControlPolicy.ExitProtectionSchedules
+            .FirstOrDefault(x => string.Equals(x.Id, clean.Id, StringComparison.Ordinal));
+
+        if (existing is null)
+        {
+            clean.Id = string.IsNullOrWhiteSpace(clean.Id) ? Guid.NewGuid().ToString("N") : clean.Id;
+            clean.CreatedUtc = DateTime.UtcNow;
+            _state.ControlPolicy.ExitProtectionSchedules.Add(clean);
+            AddAudit("ExitProtection", $"Tạo lịch '{clean.Name}': {clean.ScheduleLabel}.");
+        }
+        else
+        {
+            // CreatedUtc belongs to the original commitment and is not client-editable.
+            clean.CreatedUtc = existing.CreatedUtc;
+            var index = _state.ControlPolicy.ExitProtectionSchedules.IndexOf(existing);
+            _state.ControlPolicy.ExitProtectionSchedules[index] = clean;
+            AddAudit("ExitProtection", $"Cập nhật lịch '{clean.Name}': {clean.ScheduleLabel}.");
+        }
+
+        _store.Save(_state);
+        return $"Đã lưu lịch không thể tắt: {clean.Name} · {clean.ScheduleLabel}";
+    }
+
+    private string RemoveExitProtectionSchedule(string? id)
+    {
+        var item = FindExitProtectionScheduleUnsafe(id);
+        _state.ControlPolicy.ExitProtectionSchedules.Remove(item);
+        AddAudit("ExitProtection", $"Xóa lịch '{item.Name}'.");
+        _store.Save(_state);
+        return $"Đã xóa lịch {item.Name}.";
+    }
+
+    private string ToggleExitProtectionSchedule(string? id)
+    {
+        var item = FindExitProtectionScheduleUnsafe(id);
+        item.Enabled = !item.Enabled;
+        AddAudit("ExitProtection", $"{(item.Enabled ? "Bật" : "Tắt")} lịch '{item.Name}'.");
+        _store.Save(_state);
+        return $"{(item.Enabled ? "Đã bật" : "Đã tắt")} lịch {item.Name}.";
+    }
+
+    private ExitProtectionSchedule FindExitProtectionScheduleUnsafe(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) throw new InvalidOperationException("Thiếu ID lịch bảo vệ.");
+        return _state.ControlPolicy.ExitProtectionSchedules
+                   .FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.Ordinal))
+               ?? throw new InvalidOperationException("Không tìm thấy lịch bảo vệ.");
+    }
+
+    private static ExitProtectionSchedule NormalizeExitProtectionSchedule(ExitProtectionSchedule source)
+    {
+        var copy = new ExitProtectionSchedule
+        {
+            Id = string.IsNullOrWhiteSpace(source.Id) ? Guid.NewGuid().ToString("N") : source.Id.Trim(),
+            Name = string.IsNullOrWhiteSpace(source.Name) ? "Không thể tắt FocusLock" : source.Name.Trim(),
+            Enabled = source.Enabled,
+            Type = source.Type,
+            CreatedUtc = source.CreatedUtc,
+            OneTimeStartUtc = source.OneTimeStartUtc,
+            OneTimeEndUtc = source.OneTimeEndUtc,
+            StartTime = source.StartTime?.Trim() ?? "",
+            EndTime = source.EndTime?.Trim() ?? "",
+            WeeklyDaysMask = source.WeeklyDaysMask?.Trim() ?? ""
+        };
+
+        if (copy.Name.Length > 80) copy.Name = copy.Name[..80];
+        if (!Enum.IsDefined(typeof(ExitProtectionScheduleType), copy.Type)) throw new InvalidOperationException("Kiểu lịch không hợp lệ.");
+
+        if (copy.Type == ExitProtectionScheduleType.OneTime)
+        {
+            if (copy.OneTimeStartUtc is not DateTime start || copy.OneTimeEndUtc is not DateTime end)
+                throw new InvalidOperationException("Lịch một lần phải có ngày/giờ bắt đầu và kết thúc.");
+            start = start.Kind == DateTimeKind.Utc ? start : start.ToUniversalTime();
+            end = end.Kind == DateTimeKind.Utc ? end : end.ToUniversalTime();
+            if (end <= start) throw new InvalidOperationException("Giờ kết thúc phải sau giờ bắt đầu.");
+            if ((end - start).TotalDays > 365) throw new InvalidOperationException("Một lịch một lần tối đa 365 ngày.");
+            copy.OneTimeStartUtc = start;
+            copy.OneTimeEndUtc = end;
+            copy.StartTime = "00:00";
+            copy.EndTime = "00:01";
+            copy.WeeklyDaysMask = "0000000";
+        }
+        else
+        {
+            if (!ExitProtectionSchedule.TryParseClock(copy.StartTime, out var startClock) ||
+                !ExitProtectionSchedule.TryParseClock(copy.EndTime, out var endClock))
+                throw new InvalidOperationException("Giờ phải theo dạng HH:mm, ví dụ 08:00 hoặc 22:30.");
+            if (startClock == endClock)
+                throw new InvalidOperationException("Giờ bắt đầu và kết thúc không được giống nhau. Hãy chia lịch 24 giờ thành hai khung.");
+            copy.StartTime = startClock.ToString("HH:mm");
+            copy.EndTime = endClock.ToString("HH:mm");
+            copy.OneTimeStartUtc = null;
+            copy.OneTimeEndUtc = null;
+
+            if (copy.Type == ExitProtectionScheduleType.Daily)
+                copy.WeeklyDaysMask = "1111111";
+            else if (!ExitProtectionSchedule.IsValidWeeklyMask(copy.WeeklyDaysMask))
+                throw new InvalidOperationException("Lịch theo thứ phải chọn ít nhất một ngày.");
+        }
+
+        return copy;
+    }
 
     private string CreateBackup(string? filePath)
     {
@@ -1418,7 +1543,7 @@ public sealed class FocusAuthorityEngine
         EndUsageSessionUnsafe("Restore backup");
         ResumeStaleSuspendedUnsafe(new HashSet<int>());
 
-        var restored = _store.RestorePortableBackup(filePath ?? "", _state, 17, out var safetyBackup);
+        var restored = _store.RestorePortableBackup(filePath ?? "", _state, 18, out var safetyBackup);
         _state = restored;
         NormalizeState();
 
@@ -1473,6 +1598,13 @@ public sealed class FocusAuthorityEngine
     private void EnsureConfigurationChangeAllowedUnsafe()
     {
         var policy = _state.ControlPolicy;
+        var exitProtection = ActiveExitProtectionScheduleUnsafe();
+        if (exitProtection is not null)
+        {
+            var until = exitProtection.GetActiveUntilLocal(DateTime.Now, DateTime.UtcNow);
+            var suffix = until is DateTime value ? $" tới {value:dd/MM/yyyy HH:mm}" : "";
+            throw new InvalidOperationException($"Lịch không thể tắt '{exitProtection.Name}' đang hoạt động{suffix}. Không thể sửa cấu hình hoặc lịch trong khoảng này.");
+        }
         if (policy.SettingsTextProtectionActive)
             throw new InvalidOperationException("Bảo vệ cài đặt đang bật. Muốn thêm/sửa app, website, profile hoặc cài đặt, hãy mở khóa trong mục Cài đặt.");
         if (policy.SettingsTimeProtectionActive)
@@ -2469,12 +2601,16 @@ public sealed class FocusAuthorityEngine
     {
         var json = JsonSerializer.Serialize(_state);
         var clone = JsonSerializer.Deserialize<AppState>(json) ?? new AppState();
+        var activeExitProtection = ActiveExitProtectionScheduleUnsafe();
         return new ServiceSnapshot
         {
             ServiceOnline = true,
             ServiceStatus = _state.ClockRollbackDetected ? "Guard đang khóa do thay đổi giờ" : _state.IntegrityIssueDetected ? "Guard đang chạy · đã khôi phục dữ liệu backup" : "Guard đang chạy",
             CurrentMode = _currentMode,
             CurrentApp = _currentApp,
+            ExitProtectionActive = activeExitProtection is not null,
+            ExitProtectionName = activeExitProtection?.Name ?? "—",
+            ExitProtectionUntilLocal = activeExitProtection?.GetActiveUntilLocal(DateTime.Now, DateTime.UtcNow),
             CurrentFocusRewardProfileId = _currentFocusRewardProfileId,
             CurrentFocusRewardProfileName = _currentFocusRewardProfileName,
             CurrentFocusRewardProgressSeconds = _currentFocusRewardProgressSeconds,
@@ -2791,13 +2927,30 @@ public sealed class FocusAuthorityEngine
         // Existing V1-V5 users should not be forced through the first-run wizard after upgrade.
         if (previousSchema < 7 && (_state.Apps.Count > 0 || _state.Keys.Count > 0 || _state.TotalFocusSeconds > 0 || _state.TotalEntertainmentSeconds > 0))
             _state.Settings.OnboardingCompleted = true;
-        _state.SchemaVersion = 17;
+        _state.SchemaVersion = 18;
         _state.DailyUsage ??= new();
         _state.AppUsage ??= new();
         _state.SessionHistory ??= new();
         _state.BrowserRules ??= new();
         _state.BlockProfiles ??= new();
         _state.ControlPolicy ??= new();
+        _state.ControlPolicy.ExitProtectionSchedules ??= new();
+        for (var i = _state.ControlPolicy.ExitProtectionSchedules.Count - 1; i >= 0; i--)
+        {
+            try
+            {
+                var normalized = NormalizeExitProtectionSchedule(_state.ControlPolicy.ExitProtectionSchedules[i]);
+                normalized.CreatedUtc = _state.ControlPolicy.ExitProtectionSchedules[i].CreatedUtc == default
+                    ? DateTime.UtcNow
+                    : _state.ControlPolicy.ExitProtectionSchedules[i].CreatedUtc;
+                _state.ControlPolicy.ExitProtectionSchedules[i] = normalized;
+            }
+            catch
+            {
+                // Invalid legacy/corrupted rows are disabled instead of crashing Guard startup.
+                _state.ControlPolicy.ExitProtectionSchedules[i].Enabled = false;
+            }
+        }
         _state.ControlPolicy.StrictUnlockDelayMinutes = Math.Clamp(_state.ControlPolicy.StrictUnlockDelayMinutes <= 0 ? 30 : _state.ControlPolicy.StrictUnlockDelayMinutes, 1, 1440);
         if (_state.ControlPolicy.SettingsProtectionMode == SettingsProtectionMode.TypingChallenge &&
             string.IsNullOrWhiteSpace(_state.ControlPolicy.SettingsUnlockChallenge))

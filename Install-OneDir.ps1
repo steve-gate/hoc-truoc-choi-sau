@@ -1,4 +1,4 @@
-# FocusLock V7.7.9 OneDir first-run registration.
+# FocusLock V7.8.0.2 OneDir first-run registration.
 # This script is launched by FocusLock.exe only when the current folder is not registered.
 #Requires -RunAsAdministrator
 $ErrorActionPreference = 'Stop'
@@ -144,6 +144,27 @@ try {
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     New-Item -Path $runKey -Force | Out-Null
     New-ItemProperty -Path $runKey -Name 'FocusLock' -Value ('"' + $appExe + '"') -PropertyType String -Force | Out-Null
+
+    # Record the installed runtime version only after the Guard has been restarted
+    # successfully. This lets FocusLock detect an in-place OneDir upgrade even when
+    # the service path itself did not change.
+    $productKey = 'HKCU:\Software\FocusLock'
+    New-Item -Path $productKey -Force | Out-Null
+    New-ItemProperty -Path $productKey -Name 'OneDirVersion' -Value '7.8.0.2' -PropertyType String -Force | Out-Null
+
+    # User-session watchdog for V7.8 protected windows. It does nothing outside an
+    # active no-exit window; if the UI is force-killed during one, it reopens it on
+    # the next one-minute check. The Guard Service remains the actual authority.
+    try {
+        $watchAction = New-ScheduledTaskAction -Execute $appExe -Argument '--ensure-scheduled'
+        $watchTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+            -RepetitionInterval (New-TimeSpan -Minutes 1) `
+            -RepetitionDuration (New-TimeSpan -Days 3650)
+        $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $watchPrincipal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+        $watchSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+        Register-ScheduledTask -TaskName 'FocusLock Protected Window Watchdog' -Action $watchAction -Trigger $watchTrigger -Principal $watchPrincipal -Settings $watchSettings -Force | Out-Null
+    } catch { Write-Warning "Could not create protected-window watchdog task: $($_.Exception.Message)" }
 
     Write-Host ''
     Write-Host 'FOCUSLOCK ONEDIR READY' -ForegroundColor Green

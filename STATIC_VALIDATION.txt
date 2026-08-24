@@ -1,0 +1,9 @@
+no dotnet publish: PASS
+no service move: PASS
+no service dir removal: PASS
+uses ProgramData root: PASS
+service env pin: PASS
+12 second proof: PASS
+pipe verify: PASS
+rollback env: PASS
+no PID reserved assignment: PASS

@@ -18,7 +18,7 @@ public sealed class SecureStateStore
     {
         public string Product { get; set; } = "FocusLock";
         public int FormatVersion { get; set; } = 1;
-        public string AppVersion { get; set; } = "7.7.9";
+        public string AppVersion { get; set; } = "7.8.0.2";
         public int SchemaVersion { get; set; }
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
         public string StateSha256 { get; set; } = "";
@@ -30,6 +30,7 @@ public sealed class SecureStateStore
     private readonly string _file;
     private readonly string _backup;
     private readonly string _secretFile;
+    private readonly string _secretBackupFile;
     private byte[] _secret;
 
     public SecureStateStore()
@@ -43,6 +44,7 @@ public sealed class SecureStateStore
         _file = Path.Combine(_directory, "state.v2.json");
         _backup = Path.Combine(_directory, "state.v2.bak");
         _secretFile = Path.Combine(_directory, "guard.secret");
+        _secretBackupFile = Path.Combine(_directory, "guard.secret.bak");
         Directory.CreateDirectory(_directory);
         _secret = LoadOrCreateSecret();
     }
@@ -59,13 +61,14 @@ public sealed class SecureStateStore
             return state;
         }
 
-        var fresh = new AppState();
-        if (File.Exists(_file) || File.Exists(_backup))
+        if (HasPersistedState())
         {
-            fresh.IntegrityIssueDetected = true;
-            AddAudit(fresh, "Integrity", "Không xác minh được dữ liệu cũ; đã tạo trạng thái mới an toàn.");
+            throw new InvalidDataException(
+                $"Dữ liệu FocusLock tồn tại nhưng không xác minh được tại {_directory}. " +
+                "File được giữ nguyên; FocusLock sẽ không tạo trạng thái mặc định ghi đè dữ liệu cũ.");
         }
-        return fresh;
+
+        return new AppState();
     }
 
     public void Save(AppState state)
@@ -186,6 +189,9 @@ public sealed class SecureStateStore
         var oldStateBytes = File.Exists(_file) ? File.ReadAllBytes(_file) : Array.Empty<byte>();
         var oldBackupBytes = File.Exists(_backup) ? File.ReadAllBytes(_backup) : Array.Empty<byte>();
         var oldSecretBytes = File.Exists(_secretFile) ? File.ReadAllBytes(_secretFile) : _secret.ToArray();
+        var oldSecretBackupBytes = TryReadSecretBytes(_secretBackupFile, out var oldSecretBackup)
+            ? oldSecretBackup
+            : Array.Empty<byte>();
         var oldSecretMemory = _secret.ToArray();
 
         var secretTemp = _secretFile + ".restore-" + Guid.NewGuid().ToString("N");
@@ -199,6 +205,7 @@ public sealed class SecureStateStore
             File.Move(secretTemp, _secretFile, overwrite: true);
             _secret = secretBytes.ToArray();
             try { File.SetAttributes(_secretFile, FileAttributes.Hidden | FileAttributes.System); } catch { }
+            WriteSecretBackup(_secret);
 
             File.Move(stateTemp, _file, overwrite: true);
             File.Copy(_file, _backup, overwrite: true);
@@ -208,7 +215,9 @@ public sealed class SecureStateStore
         {
             _secret = oldSecretMemory;
             TryRestoreBytes(_secretFile, oldSecretBytes);
+            TryRestoreBytes(_secretBackupFile, oldSecretBackupBytes);
             try { if (File.Exists(_secretFile)) File.SetAttributes(_secretFile, FileAttributes.Hidden | FileAttributes.System); } catch { }
+            try { if (File.Exists(_secretBackupFile)) File.SetAttributes(_secretBackupFile, FileAttributes.Hidden | FileAttributes.System); } catch { }
             TryRestoreBytes(_file, oldStateBytes);
             TryRestoreBytes(_backup, oldBackupBytes);
             throw;
@@ -286,20 +295,104 @@ public sealed class SecureStateStore
 
     private byte[] LoadOrCreateSecret()
     {
-        try
+        if (TryReadSecretBytes(_secretFile, out var primary))
         {
-            if (File.Exists(_secretFile))
-            {
-                var bytes = File.ReadAllBytes(_secretFile);
-                if (bytes.Length >= 32) return bytes;
-            }
+            WriteSecretBackup(primary);
+            return primary;
         }
-        catch { }
+
+        if (TryReadSecretBytes(_secretBackupFile, out var backupSecret))
+        {
+            // Primary secret is missing/corrupt/unreadable. Restore it only from the
+            // exact backup key; never rotate to a new key while persisted state exists.
+            WriteSecretFile(_secretFile, backupSecret);
+            return backupSecret;
+        }
+
+        // Fail closed if any persisted artifact is present. The old implementation
+        // generated a brand-new key here; on the next Load(), the existing state then
+        // failed HMAC verification and FocusLock silently returned a default AppState.
+        // That is the reboot -> reset-to-default failure this patch prevents.
+        if (HasAnyPersistenceArtifact())
+        {
+            throw new InvalidDataException(
+                $"FocusLock có dữ liệu cũ tại {_directory} nhưng guard.secret không đọc được/hợp lệ. " +
+                "Dữ liệu được giữ nguyên; không tạo secret mới.");
+        }
 
         var secret = RandomNumberGenerator.GetBytes(64);
-        File.WriteAllBytes(_secretFile, secret);
-        try { File.SetAttributes(_secretFile, FileAttributes.Hidden | FileAttributes.System); } catch { }
+        WriteSecretFile(_secretFile, secret);
+        WriteSecretBackup(secret);
         return secret;
+    }
+
+    private bool HasPersistedState()
+    {
+        try { return File.Exists(_file) || File.Exists(_backup); }
+        catch { return true; }
+    }
+
+    private bool HasAnyPersistenceArtifact()
+    {
+        try
+        {
+            if (!Directory.Exists(_directory)) return false;
+            var names = Directory.EnumerateFiles(_directory)
+                .Select(Path.GetFileName)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return names.Contains(Path.GetFileName(_file)) ||
+                   names.Contains(Path.GetFileName(_backup)) ||
+                   names.Contains(Path.GetFileName(_secretFile)) ||
+                   names.Contains(Path.GetFileName(_secretBackupFile));
+        }
+        catch
+        {
+            // If the directory itself cannot be inspected, generating a new key is
+            // unsafe. Treat it as containing persistence data and fail closed.
+            return true;
+        }
+    }
+
+    private static bool TryReadSecretBytes(string path, out byte[] secret)
+    {
+        secret = Array.Empty<byte>();
+        try
+        {
+            if (!File.Exists(path)) return false;
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length < 32) return false;
+            secret = bytes;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private void WriteSecretBackup(byte[] secret)
+    {
+        if (TryReadSecretBytes(_secretBackupFile, out var current) &&
+            current.Length == secret.Length &&
+            CryptographicOperations.FixedTimeEquals(current, secret))
+            return;
+
+        WriteSecretFile(_secretBackupFile, secret);
+    }
+
+    private static void WriteSecretFile(string path, byte[] secret)
+    {
+        var temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            File.WriteAllBytes(temp, secret);
+            try { if (File.Exists(path)) File.SetAttributes(path, FileAttributes.Normal); } catch { }
+            File.Move(temp, path, overwrite: true);
+            try { File.SetAttributes(path, FileAttributes.Hidden | FileAttributes.System); } catch { }
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+        }
     }
 
     private static string ComputeHmac(byte[] payload, byte[] secret)

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using FocusLock.App.Services;
+using FocusLock.Shared.Protocol;
 
 namespace FocusLock.App;
 
@@ -11,6 +12,7 @@ public partial class App : Application
 {
     private const string MutexName = @"Local\FocusLock.V5.Agent"; // kept for upgrade compatibility
     private Mutex? _singleInstance;
+    private bool _quietWatchdogExit;
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -23,13 +25,24 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         RegisterCrashHandlers();
-        AppCrashLogger.Info($"START pid={Environment.ProcessId} path={Environment.ProcessPath}");
+        var ensureScheduledRun = e.Args.Any(x => string.Equals(x, "--ensure-scheduled", StringComparison.OrdinalIgnoreCase));
+        if (!ensureScheduledRun)
+            AppCrashLogger.Info($"START pid={Environment.ProcessId} path={Environment.ProcessPath}");
 
         try
         {
             _singleInstance = new Mutex(initiallyOwned: true, name: MutexName, createdNew: out var createdNew);
             if (!createdNew)
             {
+                if (ensureScheduledRun)
+                {
+                    // The minute watchdog must stay completely silent when the real
+                    // UI is already alive; it must not steal focus or show dialogs.
+                    _quietWatchdogExit = true;
+                    Shutdown(0);
+                    return;
+                }
+
                 AppCrashLogger.Info("SECONDARY INSTANCE detected. Activating existing FocusLock window.");
                 if (!TryActivateExistingWindow())
                 {
@@ -43,7 +56,16 @@ public partial class App : Application
                 return;
             }
 
+            if (ensureScheduledRun && !ProtectedWindowRequiresUi())
+            {
+                _quietWatchdogExit = true;
+                Shutdown(0);
+                return;
+            }
+
             base.OnStartup(e);
+            if (ensureScheduledRun)
+                AppCrashLogger.Info("WATCHDOG restored FocusLock UI because a protected window is active.");
 
             // OneDir: the UI itself performs first-run registration of Guard/Native Host.
             // After the first successful setup, future launches do not require elevation.
@@ -68,6 +90,23 @@ public partial class App : Application
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(10);
+        }
+    }
+
+    private static bool ProtectedWindowRequiresUi()
+    {
+        try
+        {
+            var client = new ServiceClient();
+            var response = client.SendAsync(new PipeRequest { Command = "snapshot" }, timeoutMs: 900)
+                .GetAwaiter().GetResult();
+            return response.Ok && response.Snapshot?.ExitProtectionActive == true;
+        }
+        catch
+        {
+            // The watchdog is intentionally quiet. Normal user launches still run the
+            // OneDir bootstrapper and can repair an unavailable Guard.
+            return false;
         }
     }
 
@@ -127,7 +166,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        AppCrashLogger.Info($"EXIT code={e.ApplicationExitCode}");
+        if (!_quietWatchdogExit)
+            AppCrashLogger.Info($"EXIT code={e.ApplicationExitCode}");
         try { _singleInstance?.ReleaseMutex(); } catch { }
         _singleInstance?.Dispose();
         base.OnExit(e);

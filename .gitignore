@@ -46,13 +46,21 @@ service-console.stderr.txt
 service-console.stdout.txt
 
 # Backups and temporary data
-.onedir-data-preserve/
+.onedir-data-preserve*/
 .runtime-backups/
 .source-backups/
+FocusLock-Data-Safety-*/
+FocusLock-Persistence-*-Safety-*/
+FocusLock-Persistence-Safety-*/
+FocusLock-Restore-Safety-*/
+FocusLock-TwoFix-Backup-*/
+.repair-source-*/
+FocusLock-Data/
 
 # Build outputs / payloads
-FocusLock-OneDir/
+FocusLock-OneDir*/
 payload/
+v211_ascii/
 
 # One-off test, validation notes and patches
 *.patch

@@ -9,6 +9,7 @@ internal static class OneDirBootstrapper
 {
     private const string ServiceName = "FocusLockGuard";
     private const string NativeHostName = "com.focuslock.browserbridge";
+    private const string CurrentOneDirVersion = "7.8.0.2";
 
     public static bool EnsureReady()
     {
@@ -110,6 +111,11 @@ internal static class OneDirBootstrapper
             if (!PathEquals(installedService, expectedServiceExe))
                 return true;
 
+            // Same folder path does not mean the running Guard was updated. The
+            // installer writes this marker only after it has restarted the service.
+            if (!string.Equals(ReadInstalledOneDirVersion(), CurrentOneDirVersion, StringComparison.OrdinalIgnoreCase))
+                return true;
+
             var expectedManifest = Path.Combine(root, "NativeHost", $"{NativeHostName}.json");
             var chromeManifest = ReadNativeManifestPath(@"Software\Google\Chrome\NativeMessagingHosts\" + NativeHostName);
             var edgeManifest = ReadNativeManifestPath(@"Software\Microsoft\Edge\NativeMessagingHosts\" + NativeHostName);
@@ -140,6 +146,12 @@ internal static class OneDirBootstrapper
     {
         using var key = Registry.CurrentUser.OpenSubKey(registryPath);
         return key?.GetValue(null)?.ToString();
+    }
+
+    private static string? ReadInstalledOneDirVersion()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(@"Software\FocusLock");
+        return key?.GetValue("OneDirVersion")?.ToString();
     }
 
     private static string ExtractExecutable(string commandLine)

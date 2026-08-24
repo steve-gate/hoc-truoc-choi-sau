@@ -1,4 +1,4 @@
-﻿using FocusLock.Shared.Models;
+using FocusLock.Shared.Models;
 
 namespace FocusLock.Shared.Protocol;
 
@@ -8,6 +8,11 @@ public sealed class ServiceSnapshot
     public string ServiceStatus { get; set; } = "Guard đang chạy";
     public string CurrentMode { get; set; } = "Sẵn sàng";
     public string CurrentApp { get; set; } = "—";
+
+    // V7.8: authoritative no-exit window status from Guard.
+    public bool ExitProtectionActive { get; set; }
+    public string ExitProtectionName { get; set; } = "—";
+    public DateTime? ExitProtectionUntilLocal { get; set; }
 
     // V7.7.6: reward context selected by the current Focus source.
     // Empty ProfileId means the global reward formula is active.

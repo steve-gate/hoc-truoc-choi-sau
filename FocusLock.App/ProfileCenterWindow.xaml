@@ -1,4 +1,4 @@
-﻿<Window x:Class="FocusLock.App.ProfileCenterWindow"
+<Window x:Class="FocusLock.App.ProfileCenterWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="FocusLock — Profile Center" Width="1080" Height="720" MinWidth="900" MinHeight="600"

@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
 using FocusLock.App.Services;
