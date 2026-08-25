@@ -1,9 +1,28 @@
-no dotnet publish: PASS
-no service move: PASS
-no service dir removal: PASS
-uses ProgramData root: PASS
-service env pin: PASS
-12 second proof: PASS
-pipe verify: PASS
-rollback env: PASS
-no PID reserved assignment: PASS
+FocusLock V7.8.0.2 FINAL FIX 2 - static validation
+
+PASS - based on the source ZIP supplied by the user.
+PASS - persistence target is <CodeRoot>\FocusLock-Data\Data.
+PASS - installer contains no ProgramData persistence path.
+PASS - PowerShell scripts are 7-bit ASCII only.
+PASS - no local $HOME or $PID variable names are used.
+PASS - root detection walks upward to FocusLock.sln, so a nested extracted patch folder does not change CodeRoot.
+PASS - Guard crash loop is disabled before data repair/build.
+PASS - migration selects a cryptographically HMAC-valid state+secret pair.
+PASS - exact 7-site sample rules are not rewarded as user data when choosing recovery state.
+PASS - selected state/secret bytes are captured before live files are overwritten.
+PASS - state.v2.json/state.v2.bak and guard.secret/guard.secret.bak are written as one coherent pair.
+PASS - repaired live pair is HMAC-validated before Guard starts.
+PASS - SecureStateStore tests state.v2.json with BOTH secret candidates before state.v2.bak.
+PASS - a readable primary secret is not trusted merely because its length is valid.
+PASS - guard.secret.bak is not overwritten before HMAC verification establishes the correct key.
+PASS - no new secret is generated while signed state exists.
+PASS - persistence root does not depend on FOCUSLOCK_HOME.
+PASS - sample websites require OnboardingCompleted=false before automatic seeding.
+PASS - second app launch signals the hidden/tray instance to restore its window.
+PASS - new binaries are assembled into a new FINAL-FIX2 OneDir; old locked runtime DLLs are not overwritten.
+PASS - service pipe must be reachable before install is declared successful.
+PASS - live state must remain valid with at least one persisted secret after Guard startup.
+PASS - if Guard still fails, it is disabled to prevent another restart crash loop and recent .NET events are appended to the install log.
+
+Important limitation:
+These are source/package/static checks in a Linux container. Windows Service, SCM, WPF, LocalSystem ACL and Named Pipe behavior cannot be runtime-tested here. The Windows installer performs the runtime proofs before declaring success.

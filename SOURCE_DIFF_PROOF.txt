@@ -1,0 +1,431 @@
+FocusLock FINAL FIX 2 - source diff proof
+
+=== SecureStateStore.cs ===
+--- /mnt/data/inspect_src/hoc-truoc-choi-sau-main/FocusLock.Service/Services/SecureStateStore.cs	2026-08-24 11:10:18.000000000 +0000
++++ /mnt/data/final_fix2_work/_FINAL_FIX2_PAYLOAD/FocusLock.Service/Services/SecureStateStore.cs	2026-08-24 11:48:22.168426405 +0000
+@@ -35,10 +35,10 @@
+ 
+     public SecureStateStore()
+     {
+-        // Code-folder mode: runtime data lives beside App/Service/NativeHost/BrowserExtension.
++        // Code-folder mode: persistence is anchored outside versioned OneDir folders.
+         // Expected installed layout:
+-        //   <FocusLockRoot>\Service\FocusLock.Service.exe
+-        //   <FocusLockRoot>\Data\state.v2.json
++        //   <CodeRoot>\FocusLock-OneDir-*\Service\FocusLock.Service.exe
++        //   <CodeRoot>\FocusLock-Data\Data\state.v2.json
+         var root = ResolveFocusLockRoot();
+         _directory = Path.Combine(root, "Data");
+         _file = Path.Combine(_directory, "state.v2.json");
+@@ -53,9 +53,41 @@
+ 
+     public AppState Load()
+     {
+-        if (TryLoad(_file, out var state)) return state;
+-        if (TryLoad(_backup, out state))
++        var hasPrimarySecret = TryReadSecretBytes(_secretFile, out var primarySecret);
++        var hasBackupSecret = TryReadSecretBytes(_secretBackupFile, out var backupSecret);
++
++        // Always prefer the newest state file, but validate it against BOTH known secret
++        // candidates. A readable primary secret is not automatically trustworthy: an old
++        // build may have rotated it while state.v2.json was still signed with guard.secret.bak.
++        if (hasPrimarySecret && TryLoadWithSecret(_file, primarySecret, out var state))
++        {
++            AdoptVerifiedSecret(primarySecret);
++            return state;
++        }
++
++        if (hasBackupSecret &&
++            (!hasPrimarySecret || !SecretsEqual(primarySecret, backupSecret)) &&
++            TryLoadWithSecret(_file, backupSecret, out state))
++        {
++            AdoptVerifiedSecret(backupSecret);
++            return state;
++        }
++
++        // Only fall back to state.v2.bak after both secrets have been tried against the
++        // primary state. This prevents a stale but readable key from forcing a rollback.
++        if (hasPrimarySecret && TryLoadWithSecret(_backup, primarySecret, out state))
++        {
++            AdoptVerifiedSecret(primarySecret);
++            state.IntegrityIssueDetected = true;
++            AddAudit(state, "Integrity", "File dữ liệu chính không hợp lệ; đã khôi phục từ bản sao lưu.");
++            return state;
++        }
++
++        if (hasBackupSecret &&
++            (!hasPrimarySecret || !SecretsEqual(primarySecret, backupSecret)) &&
++            TryLoadWithSecret(_backup, backupSecret, out state))
+         {
++            AdoptVerifiedSecret(backupSecret);
+             state.IntegrityIssueDetected = true;
+             AddAudit(state, "Integrity", "File dữ liệu chính không hợp lệ; đã khôi phục từ bản sao lưu.");
+             return state;
+@@ -65,7 +97,7 @@
+         {
+             throw new InvalidDataException(
+                 $"Dữ liệu FocusLock tồn tại nhưng không xác minh được tại {_directory}. " +
+-                "File được giữ nguyên; FocusLock sẽ không tạo trạng thái mặc định ghi đè dữ liệu cũ.");
++                "File và cả hai secret được giữ nguyên; FocusLock sẽ không tạo trạng thái mặc định ghi đè dữ liệu cũ.");
+         }
+ 
+         return new AppState();
+@@ -249,29 +281,58 @@
+ 
+     private static string ResolveFocusLockRoot()
+     {
+-        // Optional override is useful for debugging, but normal installs do not need it.
+-        var configured = Environment.GetEnvironmentVariable("FOCUSLOCK_HOME");
+-        if (!string.IsNullOrWhiteSpace(configured))
+-            return Path.GetFullPath(configured);
+-
++        // Persistence must stay inside the user's code folder and must not depend on
++        // environment variables, the Windows working directory, or a versioned OneDir.
++        // Preferred layout:
++        //   <CodeRoot>\FocusLock.sln
++        //   <CodeRoot>\FocusLock-OneDir-*\Service\FocusLock.Service.exe
++        //   <CodeRoot>\FocusLock-Data\Data\state.v2.json
+         var baseDir = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+-        var current = new DirectoryInfo(baseDir);
++        var serviceDir = new DirectoryInfo(baseDir);
++
++        // In the developer/code-folder edition, walk upward and anchor persistence at
++        // the directory that contains FocusLock.sln. This is deterministic after reboot.
++        DirectoryInfo? cursor = serviceDir;
++        for (var depth = 0; cursor is not null && depth < 6; depth++, cursor = cursor.Parent)
++        {
++            try
++            {
++                if (File.Exists(Path.Combine(cursor.FullName, "FocusLock.sln")))
++                    return Path.Combine(cursor.FullName, "FocusLock-Data");
++            }
++            catch { }
++        }
+ 
+-        // Published service normally lives in <root>\Service.
+-        if (current.Name.Equals("Service", StringComparison.OrdinalIgnoreCase) && current.Parent is not null)
+-            return current.Parent.FullName;
++        // Fallback for a versioned OneDir located directly inside the code folder.
++        if (serviceDir.Name.Equals("Service", StringComparison.OrdinalIgnoreCase) && serviceDir.Parent is not null)
++        {
++            var runtimeRoot = serviceDir.Parent;
++            if ((runtimeRoot.Name.StartsWith("FocusLock-OneDir", StringComparison.OrdinalIgnoreCase) ||
++                 runtimeRoot.Name.Equals("publish", StringComparison.OrdinalIgnoreCase)) &&
++                runtimeRoot.Parent is not null)
++            {
++                return Path.Combine(runtimeRoot.Parent.FullName, "FocusLock-Data");
++            }
+ 
+-        // Fallback for development/debug layouts.
+-        return current.FullName;
++            return Path.Combine(runtimeRoot.FullName, "FocusLock-Data");
++        }
++
++        // Development/debug fallback when no solution marker can be found.
++        return Path.Combine(serviceDir.FullName, "FocusLock-Data");
+     }
+ 
+     private bool TryLoad(string path, out AppState state)
+     {
++        return TryLoadWithSecret(path, _secret, out state);
++    }
++
++    private bool TryLoadWithSecret(string path, byte[] secret, out AppState state)
++    {
+         state = new AppState();
+         try
+         {
+-            if (!File.Exists(path)) return false;
+-            return TryParseEnvelope(File.ReadAllBytes(path), _secret, out state);
++            if (secret.Length < 32 || !File.Exists(path)) return false;
++            return TryParseEnvelope(File.ReadAllBytes(path), secret, out state);
+         }
+         catch { return false; }
+     }
+@@ -295,28 +356,40 @@
+ 
+     private byte[] LoadOrCreateSecret()
+     {
+-        if (TryReadSecretBytes(_secretFile, out var primary))
++        var hasPrimary = TryReadSecretBytes(_secretFile, out var primary);
++        var hasBackup = TryReadSecretBytes(_secretBackupFile, out var backupSecret);
++
++        // Critical rule: when signed state already exists, NEVER copy one secret over the
++        // other before HMAC verification. The previous fail-safe still trusted any readable
++        // primary secret and immediately overwrote guard.secret.bak with it. If primary was
++        // stale but backup matched the state, that destroyed the only usable recovery key.
++        if (HasPersistedState())
+         {
+-            WriteSecretBackup(primary);
++            if (hasPrimary) return primary;
++            if (hasBackup) return backupSecret;
++
++            throw new InvalidDataException(
++                $"FocusLock có dữ liệu cũ tại {_directory} nhưng cả guard.secret và guard.secret.bak đều không đọc được/hợp lệ. " +
++                "Dữ liệu được giữ nguyên; không tạo secret mới.");
++        }
++
++        // No signed state exists yet, so normal key bootstrap/recovery is safe.
++        if (hasPrimary)
++        {
++            if (!hasBackup) WriteSecretBackup(primary);
+             return primary;
+         }
+ 
+-        if (TryReadSecretBytes(_secretBackupFile, out var backupSecret))
++        if (hasBackup)
+         {
+-            // Primary secret is missing/corrupt/unreadable. Restore it only from the
+-            // exact backup key; never rotate to a new key while persisted state exists.
+             WriteSecretFile(_secretFile, backupSecret);
+             return backupSecret;
+         }
+ 
+-        // Fail closed if any persisted artifact is present. The old implementation
+-        // generated a brand-new key here; on the next Load(), the existing state then
+-        // failed HMAC verification and FocusLock silently returned a default AppState.
+-        // That is the reboot -> reset-to-default failure this patch prevents.
+         if (HasAnyPersistenceArtifact())
+         {
+             throw new InvalidDataException(
+-                $"FocusLock có dữ liệu cũ tại {_directory} nhưng guard.secret không đọc được/hợp lệ. " +
++                $"FocusLock có persistence artifact tại {_directory} nhưng không có secret hợp lệ. " +
+                 "Dữ liệu được giữ nguyên; không tạo secret mới.");
+         }
+ 
+@@ -326,6 +399,28 @@
+         return secret;
+     }
+ 
++    private void AdoptVerifiedSecret(byte[] verifiedSecret)
++    {
++        _secret = verifiedSecret;
++
++        // Repair primary only AFTER a state file has proved which key is correct.
++        if (!TryReadSecretBytes(_secretFile, out var currentPrimary) ||
++            !SecretsEqual(currentPrimary, verifiedSecret))
++        {
++            WriteSecretFile(_secretFile, verifiedSecret);
++        }
++
++        // Do not overwrite a different readable backup key here. It may still be the key
++        // for state.v2.bak and is useful for recovery. Only create the backup if missing.
++        if (!TryReadSecretBytes(_secretBackupFile, out _))
++            WriteSecretBackup(verifiedSecret);
++    }
++
++    private static bool SecretsEqual(byte[] a, byte[] b)
++    {
++        return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
++    }
++
+     private bool HasPersistedState()
+     {
+         try { return File.Exists(_file) || File.Exists(_backup); }
+
+=== FocusAuthorityEngine.cs ===
+--- /mnt/data/inspect_src/hoc-truoc-choi-sau-main/FocusLock.Service/Services/FocusAuthorityEngine.cs	2026-08-24 11:10:18.000000000 +0000
++++ /mnt/data/final_fix2_work/_FINAL_FIX2_PAYLOAD/FocusLock.Service/Services/FocusAuthorityEngine.cs	2026-08-24 11:48:21.021148354 +0000
+@@ -3105,7 +3105,8 @@
+             }
+         }
+ 
+-        if (_state.BrowserRules.Count == 0 && _state.Apps.Count == 0 && _state.Keys.Count == 0 &&
++        if (!_state.Settings.OnboardingCompleted &&
++            _state.BrowserRules.Count == 0 && _state.Apps.Count == 0 && _state.Keys.Count == 0 &&
+             _state.TotalFocusSeconds == 0 && _state.TotalEntertainmentSeconds == 0)
+         {
+             _state.BrowserRules.AddRange(new[]
+
+=== App.xaml.cs ===
+--- /mnt/data/inspect_src/hoc-truoc-choi-sau-main/FocusLock.App/App.xaml.cs	2026-08-24 11:10:18.000000000 +0000
++++ /mnt/data/final_fix2_work/_FINAL_FIX2_PAYLOAD/FocusLock.App/App.xaml.cs	2026-08-24 11:48:21.027893121 +0000
+@@ -11,7 +11,10 @@
+ public partial class App : Application
+ {
+     private const string MutexName = @"Local\FocusLock.V5.Agent"; // kept for upgrade compatibility
++    private const string ActivationEventName = @"Local\FocusLock.V5.ShowWindow";
+     private Mutex? _singleInstance;
++    private EventWaitHandle? _activationEvent;
++    private CancellationTokenSource? _activationCancellation;
+     private bool _quietWatchdogExit;
+ 
+     [DllImport("user32.dll")]
+@@ -44,10 +47,10 @@
+                 }
+ 
+                 AppCrashLogger.Info("SECONDARY INSTANCE detected. Activating existing FocusLock window.");
+-                if (!TryActivateExistingWindow())
++                if (!SignalExistingInstance() && !TryActivateExistingWindow())
+                 {
+                     MessageBox.Show(
+-                        "FocusLock đang chạy trong phiên Windows này. Nếu bạn không thấy cửa sổ, hãy kiểm tra Taskbar hoặc Task Manager.",
++                        "FocusLock đang chạy trong phiên Windows này nhưng chưa thể đưa cửa sổ ra trước. Hãy thử biểu tượng FocusLock ở khay hệ thống.",
+                         "FocusLock",
+                         MessageBoxButton.OK,
+                         MessageBoxImage.Information);
+@@ -56,6 +59,8 @@
+                 return;
+             }
+ 
++            StartActivationListener();
++
+             if (ensureScheduledRun && !ProtectedWindowRequiresUi())
+             {
+                 _quietWatchdogExit = true;
+@@ -142,6 +147,84 @@
+         catch { }
+     }
+ 
++    private void StartActivationListener()
++    {
++        try
++        {
++            _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
++            _activationCancellation = new CancellationTokenSource();
++            var token = _activationCancellation.Token;
++            var handle = _activationEvent;
++
++            _ = Task.Run(() =>
++            {
++                while (!token.IsCancellationRequested)
++                {
++                    try
++                    {
++                        if (!handle.WaitOne(500)) continue;
++                        if (token.IsCancellationRequested) break;
++                        Dispatcher.BeginInvoke(BringMainWindowToFront);
++                    }
++                    catch (ObjectDisposedException) { break; }
++                    catch (Exception ex)
++                    {
++                        AppCrashLogger.Exception("Activation event listener", ex);
++                        break;
++                    }
++                }
++            }, token);
++        }
++        catch (Exception ex)
++        {
++            AppCrashLogger.Exception("Could not create activation event", ex);
++        }
++    }
++
++    private static bool SignalExistingInstance()
++    {
++        for (var attempt = 0; attempt < 10; attempt++)
++        {
++            try
++            {
++                using var activation = EventWaitHandle.OpenExisting(ActivationEventName);
++                return activation.Set();
++            }
++            catch (WaitHandleCannotBeOpenedException)
++            {
++                Thread.Sleep(100);
++            }
++            catch
++            {
++                return false;
++            }
++        }
++
++        return false;
++    }
++
++    private void BringMainWindowToFront()
++    {
++        try
++        {
++            var window = MainWindow ?? Windows.OfType<Window>().FirstOrDefault();
++            if (window is null) return;
++
++            window.ShowInTaskbar = true;
++            if (!window.IsVisible) window.Show();
++            if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
++            window.Activate();
++            window.Topmost = true;
++            window.Topmost = false;
++            window.Focus();
++            AppCrashLogger.Info("Existing hidden/tray window restored by activation event.");
++        }
++        catch (Exception ex)
++        {
++            AppCrashLogger.Exception("BringMainWindowToFront", ex);
++        }
++    }
++
+     private static bool TryActivateExistingWindow()
+     {
+         try
+@@ -168,6 +251,12 @@
+     {
+         if (!_quietWatchdogExit)
+             AppCrashLogger.Info($"EXIT code={e.ApplicationExitCode}");
++        try { _activationCancellation?.Cancel(); } catch { }
++        try { _activationEvent?.Set(); } catch { }
++        try { _activationEvent?.Dispose(); } catch { }
++        _activationEvent = null;
++        _activationCancellation?.Dispose();
++        _activationCancellation = null;
+         try { _singleInstance?.ReleaseMutex(); } catch { }
+         _singleInstance?.Dispose();
+         base.OnExit(e);
+
+=== Install-OneDir.ps1 ===
+--- /mnt/data/inspect_src/hoc-truoc-choi-sau-main/Install-OneDir.ps1	2026-08-24 11:10:18.000000000 +0000
++++ /mnt/data/final_fix2_work/_FINAL_FIX2_PAYLOAD/Install-OneDir.ps1	2026-08-24 11:50:42.447828722 +0000
+@@ -29,7 +29,19 @@
+ $serviceDir = Join-Path $root 'Service'
+ $nativeDir = Join-Path $root 'NativeHost'
+ $extensionDir = Join-Path $root 'BrowserExtension'
+-$dataDir = Join-Path $root 'Data'
++$parentOfRuntime = Split-Path -Parent $root
++if (Test-Path -LiteralPath (Join-Path $root 'FocusLock.sln') -PathType Leaf) {
++    $codeRoot = $root
++}
++elseif (Test-Path -LiteralPath (Join-Path $parentOfRuntime 'FocusLock.sln') -PathType Leaf) {
++    $codeRoot = $parentOfRuntime
++}
++else {
++    # OneDir is normally a direct child of the code folder.
++    $codeRoot = $parentOfRuntime
++}
++$dataRoot = Join-Path $codeRoot 'FocusLock-Data'
++$dataDir = Join-Path $dataRoot 'Data'
+ $logsDir = Join-Path $root 'Logs'
+ $serviceExe = Join-Path $serviceDir 'FocusLock.Service.exe'
+ $appExe = Join-Path $root 'FocusLock.exe'
+@@ -48,11 +60,19 @@
+     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+ 
+-    Step 'Repairing permissions'
++    Step 'Repairing permissions for code-folder persistence'
+     & icacls.exe $root /grant '*S-1-5-18:(OI)(CI)RX' /T /C /Q | Out-Null
+-    & icacls.exe $dataDir /reset /T /C /Q | Out-Null
+-    & icacls.exe $dataDir /inheritance:r /T /C /Q | Out-Null
+-    & icacls.exe $dataDir /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C /Q | Out-Null
++    # Do not remove inheritance and do not lock the interactive user out of Data.
++    # Guard runs as LocalSystem, while the files remain inside the user's code folder.
++    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
++    & icacls.exe $dataRoot /inheritance:e /T /C /Q | Out-Null
++    & icacls.exe $dataRoot /grant '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' ('*' + $currentSid + ':(OI)(CI)F') /T /C /Q | Out-Null
++
++    # Old experimental builds used FOCUSLOCK_HOME. The fixed service ignores it, and
++    # removing stale values prevents other/older binaries from reading a different Data root.
++    try { [Environment]::SetEnvironmentVariable('FOCUSLOCK_HOME', $null, 'Machine') } catch { }
++    try { [Environment]::SetEnvironmentVariable('FOCUSLOCK_HOME', $null, 'User') } catch { }
++    Remove-Item Env:FOCUSLOCK_HOME -ErrorAction SilentlyContinue
+ 
+     Step 'Registering Browser Bridge'
+     $manifestObject = @{
+@@ -170,7 +190,7 @@
+     Write-Host 'FOCUSLOCK ONEDIR READY' -ForegroundColor Green
+     Write-Host "App:       $appExe"
+     Write-Host "Service:   $serviceExe"
+-    Write-Host "Data:      $dataDir"
++    Write-Host "Data:      $dataDir (stable code-folder storage)"
+     Write-Host "Extension: $extensionDir"
+     exit 0
+ }

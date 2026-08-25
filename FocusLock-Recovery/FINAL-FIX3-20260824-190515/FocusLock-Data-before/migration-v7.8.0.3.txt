@@ -1,0 +1,7 @@
+﻿FocusLock V7.8.0.3 persistent-data migration
+MigratedUtc=2026-08-24T01:40:08.1033925Z
+Source=D:\1_Dowload\0code\hoc truoc choi sau\FocusLock-OneDir-V7.8.0.3\Data
+SourceState=D:\1_Dowload\0code\hoc truoc choi sau\FocusLock-OneDir-V7.8.0.3\Data\state.v2.json
+Score=70000
+Schema=18
+Destination=D:\1_Dowload\0code\hoc truoc choi sau\FocusLock-Data\Data

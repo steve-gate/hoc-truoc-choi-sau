@@ -1,15 +1,11 @@
-FocusLock V7.8.0.2 Persistence V2.1.1 CONFIG-ONLY
+FocusLock FIX3 post-reboot diagnostic
 
 Purpose:
-- Fix ONLY the PowerShell 5.1 parser/encoding problem in V2.1.
-- No Service EXE/DLL is built, moved, deleted, or overwritten.
-- No App/UI/Bootstrap file is changed.
-- The persistence logic is unchanged from V2.1.
+- Read-only diagnosis after reboot when Guard pipe is offline and VERIFY_FINAL_FIX3 reports STATE: INVALID.
+- Tests state.v2.json and state.v2.bak against guard.secret and guard.secret.bak separately.
+- Captures exact hashes, timestamps, ACLs, service path, startup tasks and recent .NET/SCM errors.
 
-Run as Administrator:
-  APPLY_V7_8_0_2_PERSISTENCE_V2_1_1.bat
+Run from the FocusLock code root as Administrator:
+  DIAGNOSE_FIX3_AFTER_REBOOT.bat
 
-Then verify:
-  PERSISTENCE_STATUS_V2_1_1.bat
-
-All PowerShell scripts in this package are strict 7-bit ASCII.
+The script does NOT modify FocusLock Data and does NOT reconfigure or restart the service.
